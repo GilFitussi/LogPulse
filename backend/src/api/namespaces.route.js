@@ -1,6 +1,6 @@
 const Router = require("@koa/router");
 const { listNamespaces } = require("../service/namespaces.service");
-const { listPods } = require("../service/pods.service");
+const { isValidNamespace, listPods } = require("../service/pods.service");
 
 const router = new Router({ prefix: "/api" });
 
@@ -9,7 +9,13 @@ router.get("/namespaces", async (ctx) => {
 });
 
 router.get("/namespaces/:namespace/pods", async (ctx) => {
-  ctx.body = { pods: await listPods(ctx.params.namespace) };
+  const { namespace } = ctx.params;
+
+  if (!isValidNamespace(namespace)) {
+    ctx.throw(400, "Invalid namespace");
+  }
+
+  ctx.body = { pods: await listPods(namespace) };
 });
 
 module.exports = router;

@@ -7,6 +7,7 @@ jest.mock("../../src/service/namespaces.service", () => ({
 }));
 
 jest.mock("../../src/service/pods.service", () => ({
+  isValidNamespace: jest.fn(() => true),
   listPods: jest.fn(),
 }));
 
