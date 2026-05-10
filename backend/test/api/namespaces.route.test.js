@@ -1,37 +1,31 @@
 const request = require("supertest");
-const { createKubeClient } = require("../../src/service/kubeClient.service");
+const { listNamespaces } = require("../../src/service/namespaces.service");
+const { KubernetesApiError, OpenShiftAuthError } = require("../../src/errors/app.error");
 
-jest.mock("../../src/service/kubeClient.service", () => ({
-  createKubeClient: jest.fn(),
+jest.mock("../../src/service/namespaces.service", () => ({
+  listNamespaces: jest.fn(),
 }));
 
 const app = require("../../src/app");
 
 describe("GET /api/namespaces", () => {
   beforeEach(() => {
-    createKubeClient.mockReset();
+    listNamespaces.mockReset();
   });
 
-  it("returns namespace names only", async () => {
-    createKubeClient.mockResolvedValue({
-      listNamespace: jest.fn().mockResolvedValue({
-        items: [
-          { metadata: { name: "dev", labels: { team: "a" } } },
-          { metadata: { name: "prod" }, status: { phase: "Active" } },
-        ],
-      }),
-    });
+  it("returns namespace names from the namespace service", async () => {
+    listNamespaces.mockResolvedValue(["dev", "prod"]);
 
     const response = await request(app.callback()).get("/api/namespaces");
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ namespaces: ["dev", "prod"] });
-    expect(response.body).not.toHaveProperty("items");
+    expect(listNamespaces).toHaveBeenCalledTimes(1);
   });
 
-  it("handles authentication failures while creating the Kubernetes client", async () => {
-    createKubeClient.mockRejectedValue(
-      new Error("Unable to create Kubernetes client without an oc token"),
+  it("handles authentication failures through shared error middleware", async () => {
+    listNamespaces.mockRejectedValue(
+      new OpenShiftAuthError("Unable to create Kubernetes client without an oc token"),
     );
 
     const response = await request(app.callback()).get("/api/namespaces");
@@ -43,15 +37,10 @@ describe("GET /api/namespaces", () => {
     });
   });
 
-  it("handles Kubernetes API authentication errors clearly", async () => {
-    createKubeClient.mockResolvedValue({
-      listNamespace: jest.fn().mockRejectedValue({
-        response: {
-          statusCode: 403,
-          body: { message: "namespaces is forbidden" },
-        },
-      }),
-    });
+  it("handles Kubernetes API authentication errors through shared error middleware", async () => {
+    listNamespaces.mockRejectedValue(
+      new OpenShiftAuthError("namespaces is forbidden", 403),
+    );
 
     const response = await request(app.callback()).get("/api/namespaces");
 
@@ -62,15 +51,10 @@ describe("GET /api/namespaces", () => {
     });
   });
 
-  it("handles Kubernetes API errors clearly", async () => {
-    createKubeClient.mockResolvedValue({
-      listNamespace: jest.fn().mockRejectedValue({
-        response: {
-          statusCode: 500,
-          body: { message: "apiserver unavailable" },
-        },
-      }),
-    });
+  it("handles Kubernetes API errors through shared error middleware", async () => {
+    listNamespaces.mockRejectedValue(
+      new KubernetesApiError("apiserver unavailable", 500),
+    );
 
     const response = await request(app.callback()).get("/api/namespaces");
 
