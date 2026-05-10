@@ -242,10 +242,12 @@ function App() {
 
 		eventSource.addEventListener("log", (event) => {
 			try {
-				const logLine = JSON.parse(event.data);
+				const logBatch = JSON.parse(event.data);
+				const logLines = Array.isArray(logBatch) ? logBatch : [logBatch];
+
 				setLogLines((currentLines) => [
 					...currentLines,
-					formatLogEvent(logLine),
+					...logLines.map(formatLogEvent),
 				]);
 			} catch {
 				setLogLines((currentLines) => [...currentLines, event.data]);
