@@ -1,27 +1,34 @@
 const { KubernetesApiError, OpenShiftAuthError } = require("../errors/app.error");
-const { createKubeClient } = require("./kubeClient.service");
+const {
+  getOcErrorMessage,
+  isOcNotInstalledError,
+  runOcCommand,
+} = require("./ocCommand.service");
 
-function normalizeNamespaceList(response) {
-  const namespaceList = response?.body || response;
-  return (namespaceList?.items || [])
-    .map((namespace) => namespace?.metadata?.name)
+function parseProjectList(stdout) {
+  return stdout
+    .split("\n")
+    .map((project) => project.trim())
     .filter(Boolean);
 }
 
+function isOcAuthError(error) {
+  const message = getOcErrorMessage(error)?.toLowerCase() || "";
+  return isOcNotInstalledError(error) || message.includes("must be logged in");
+}
+
 async function listNamespaces() {
-  let kubeClient;
-
   try {
-    kubeClient = await createKubeClient();
+    const { stdout } = await runOcCommand(["projects", "-q"]);
+    return parseProjectList(stdout);
   } catch (error) {
-    throw new OpenShiftAuthError(error.message);
-  }
+    const message = getOcErrorMessage(error);
 
-  try {
-    const response = await kubeClient.listNamespace();
-    return normalizeNamespaceList(response);
-  } catch (error) {
-    throw KubernetesApiError.from(error);
+    if (isOcAuthError(error)) {
+      throw new OpenShiftAuthError(message);
+    }
+
+    throw new KubernetesApiError(message || "Unable to list OpenShift projects");
   }
 }
 

@@ -39,6 +39,10 @@ const authStatusContent = {
 function App() {
   const [healthStatus, setHealthStatus] = useState("Checking backend health...")
   const [authStatus, setAuthStatus] = useState(AUTH_STATUS.CHECKING)
+  const [namespaces, setNamespaces] = useState([])
+  const [namespacesStatus, setNamespacesStatus] = useState("Loading projects...")
+  const [namespaceSearch, setNamespaceSearch] = useState("")
+  const [selectedNamespace, setSelectedNamespace] = useState("")
 
   useEffect(() => {
     const checkBackendHealth = async () => {
@@ -89,11 +93,56 @@ function App() {
       }
     }
 
+    const loadNamespaces = async () => {
+      try {
+        const response = await fetch("http://localhost:3000/api/namespaces")
+        const data = await response.json().catch(() => ({}))
+
+        if (response.status === 401) {
+          setNamespacesStatus(data.details || data.error || "OpenShift authentication failed")
+          return
+        }
+
+        if (response.status === 403) {
+          setNamespacesStatus(data.details || "Your oc user cannot list projects")
+          return
+        }
+
+        if (!response.ok) {
+          setNamespacesStatus(data.details || data.error || "Unable to load projects")
+          return
+        }
+
+        if (!Array.isArray(data.namespaces)) {
+          setNamespacesStatus("Unexpected projects response from backend")
+          return
+        }
+
+        setNamespaces(data.namespaces)
+        setNamespacesStatus(
+          data.namespaces.length > 0 ? "Choose a project" : "No projects found",
+        )
+      } catch {
+        setNamespacesStatus("Unable to reach backend")
+      }
+    }
+
     checkBackendHealth()
     checkAuthStatus()
+    loadNamespaces()
   }, [])
 
   const authContent = authStatusContent[authStatus]
+  const filteredNamespaces = namespaces.filter((namespace) =>
+    namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
+  )
+
+  const handleNamespaceChange = (event) => {
+    const value = event.target.value
+
+    setNamespaceSearch(value)
+    setSelectedNamespace(namespaces.includes(value) ? value : "")
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8">
@@ -120,7 +169,27 @@ function App() {
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-base font-medium text-slate-900">Project selector</h2>
-            <div className="mt-4 h-11 rounded-md border border-dashed border-slate-300 bg-slate-50" />
+            <label htmlFor="namespace-selector" className="mt-4 block text-sm text-slate-700">
+              OpenShift project / namespace
+            </label>
+            <input
+              id="namespace-selector"
+              list="namespace-options"
+              value={namespaceSearch}
+              onChange={handleNamespaceChange}
+              placeholder="Search projects..."
+              className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+            />
+            <datalist id="namespace-options">
+              {filteredNamespaces.map((namespace) => (
+                <option key={namespace} value={namespace} />
+              ))}
+            </datalist>
+            <p className="mt-2 text-sm text-slate-600">
+              {selectedNamespace
+                ? `Selected project: ${selectedNamespace}`
+                : namespacesStatus}
+            </p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">

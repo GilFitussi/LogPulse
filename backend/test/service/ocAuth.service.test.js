@@ -31,20 +31,31 @@ describe("OpenShift authentication helpers", () => {
     await expect(getOcToken()).resolves.toBe("internal-token");
   });
 
-  it("returns authenticated when the oc CLI is installed and has a token", async () => {
+  it("returns authenticated when the oc CLI has a token and the server accepts it", async () => {
     mockOcCommand(({ args, callback }) => {
       if (args[0] === "version") {
         callback(null, "Client Version: 4.16\n", "");
         return;
       }
 
-      callback(null, "super-secret-token\n", "");
+      if (args[0] === "whoami" && args[1] === "-t") {
+        callback(null, "super-secret-token\n", "");
+        return;
+      }
+
+      callback(null, "developer\n", "");
     });
 
     await expect(checkOcAuth()).resolves.toEqual({ authenticated: true });
     expect(childProcess.execFile).toHaveBeenCalledWith(
       "oc",
       ["whoami", "-t"],
+      expect.any(Object),
+      expect.any(Function),
+    );
+    expect(childProcess.execFile).toHaveBeenCalledWith(
+      "oc",
+      ["whoami"],
       expect.any(Object),
       expect.any(Function),
     );
@@ -89,6 +100,32 @@ describe("OpenShift authentication helpers", () => {
       }
 
       callback(null, "\n", "");
+    });
+
+    await expect(checkOcAuth()).resolves.toEqual({
+      authenticated: false,
+      status: 401,
+      error: OC_NOT_LOGGED_IN_ERROR,
+    });
+  });
+
+  it("returns a 401 status when a token exists but the server rejects the session", async () => {
+    mockOcCommand(({ args, callback }) => {
+      if (args[0] === "version") {
+        callback(null, "Client Version: 4.16\n", "");
+        return;
+      }
+
+      if (args[0] === "whoami" && args[1] === "-t") {
+        callback(null, "stale-token\n", "");
+        return;
+      }
+
+      callback(
+        new Error("not logged in"),
+        "",
+        "error: You must be logged in to the server",
+      );
     });
 
     await expect(checkOcAuth()).resolves.toEqual({
