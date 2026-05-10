@@ -5,9 +5,44 @@ const { streamPodLogs } = require("../service/logs.service");
 
 const router = new Router({ prefix: "/api" });
 
+const LOG_BATCH_INTERVAL_MS = 100;
+const MAX_LOG_BATCH_SIZE = 250;
+
 function writeSseEvent(res, event, data) {
 	res.write(`event: ${event}\n`);
 	res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function createLogBatcher(res) {
+	let buffer = [];
+
+	const flush = () => {
+		if (buffer.length === 0 || res.destroyed || res.writableEnded) {
+			return;
+		}
+
+		const batch = buffer;
+		buffer = [];
+		writeSseEvent(res, "log", batch);
+	};
+
+	const interval = setInterval(flush, LOG_BATCH_INTERVAL_MS);
+	interval.unref?.();
+
+	return {
+		add(logLine) {
+			buffer.push(logLine);
+
+			if (buffer.length >= MAX_LOG_BATCH_SIZE) {
+				flush();
+			}
+		},
+		flush,
+		stop() {
+			clearInterval(interval);
+			flush();
+		},
+	};
 }
 
 router.get("/logs/:namespace/:pod", async (ctx) => {
@@ -33,8 +68,10 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 
 	let logStream;
 	let disconnected = false;
+	const logBatcher = createLogBatcher(ctx.res);
 
 	const cleanup = () => {
+		logBatcher.stop();
 		disconnected = true;
 		logStream?.abort();
 	};
@@ -44,7 +81,7 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 	try {
 		logStream = await streamPodLogs(namespace, pod, (logLine) => {
 			if (!disconnected) {
-				writeSseEvent(ctx.res, "log", logLine);
+				logBatcher.add(logLine);
 			}
 		});
 
@@ -53,6 +90,7 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 		}
 	} catch (error) {
 		if (!disconnected) {
+			logBatcher.stop();
 			writeSseEvent(ctx.res, "error", {
 				error: error.message || "Log stream failed",
 				details: error.details,
@@ -63,3 +101,5 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 });
 
 module.exports = router;
+module.exports.createLogBatcher = createLogBatcher;
+module.exports.LOG_BATCH_INTERVAL_MS = LOG_BATCH_INTERVAL_MS;
