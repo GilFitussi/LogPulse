@@ -11,6 +11,10 @@ jest.mock("../../src/service/ocAuth.service", () => ({
   checkOcAuth: jest.fn(),
 }));
 
+jest.mock("../../src/service/kubeClient.service", () => ({
+  createKubeClient: jest.fn(),
+}));
+
 const app = require("../../src/app");
 
 describe("GET /api/auth/status", () => {
