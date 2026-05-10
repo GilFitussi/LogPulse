@@ -1,4 +1,5 @@
 const Router = require("@koa/router");
+const { createKubeClient } = require("../service/kubeClient.service");
 
 const router = new Router({ prefix: "/api" });
 
@@ -30,7 +31,6 @@ router.get("/namespaces", async (ctx) => {
   let kubeClient;
 
   try {
-    const { createKubeClient } = require("../service/kubeClient.service");
     kubeClient = await createKubeClient();
   } catch (error) {
     ctx.status = 401;
