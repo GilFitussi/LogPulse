@@ -1,27 +1,9 @@
 const { createKubeClient } = require("../../src/service/kubeClient.service");
-const {
-	isValidNamespace,
-	listPods,
-} = require("../../src/service/pods.service");
+const { listPods } = require("../../src/service/pods.service");
 
 jest.mock("../../src/service/kubeClient.service", () => ({
 	createKubeClient: jest.fn(),
 }));
-
-describe("isValidNamespace", () => {
-	it("accepts valid Kubernetes namespace names", () => {
-		expect(isValidNamespace("dev")).toBe(true);
-		expect(isValidNamespace("my-project-1")).toBe(true);
-	});
-
-	it("rejects invalid Kubernetes namespace names", () => {
-		expect(isValidNamespace("")).toBe(false);
-		expect(isValidNamespace("Invalid_Namespace")).toBe(false);
-		expect(isValidNamespace("-dev")).toBe(false);
-		expect(isValidNamespace("dev-")).toBe(false);
-		expect(isValidNamespace("a".repeat(64))).toBe(false);
-	});
-});
 
 describe("listPods", () => {
 	beforeEach(() => {

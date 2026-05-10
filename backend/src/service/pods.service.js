@@ -1,18 +1,6 @@
 const { KubernetesApiError } = require("../errors/app.error");
 const { createKubeClient } = require("./kubeClient.service");
 
-const NAMESPACE_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
-const MAX_NAMESPACE_LENGTH = 63;
-
-function isValidNamespace(namespace) {
-	return (
-		typeof namespace === "string" &&
-		namespace.length > 0 &&
-		namespace.length <= MAX_NAMESPACE_LENGTH &&
-		NAMESPACE_NAME_PATTERN.test(namespace)
-	);
-}
-
 function getRestartCount(pod) {
 	const statuses = [
 		...(pod.status?.initContainerStatuses || []),
@@ -51,6 +39,5 @@ async function listPods(namespace) {
 }
 
 module.exports = {
-	isValidNamespace,
 	listPods,
 };
