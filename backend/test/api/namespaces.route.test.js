@@ -6,6 +6,10 @@ jest.mock("../../src/service/namespaces.service", () => ({
   listNamespaces: jest.fn(),
 }));
 
+jest.mock("../../src/service/pods.service", () => ({
+  listPods: jest.fn(),
+}));
+
 const app = require("../../src/app");
 
 describe("GET /api/namespaces", () => {
