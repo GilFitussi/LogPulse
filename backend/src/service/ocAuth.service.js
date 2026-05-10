@@ -36,6 +36,11 @@ async function getOcToken() {
   return stdout.trim();
 }
 
+async function validateOcSession() {
+  const { stdout } = await runOcCommand(["whoami"]);
+  return stdout.trim();
+}
+
 async function checkOcAuth() {
   try {
     await runOcCommand(["version", "--client"]);
@@ -59,6 +64,16 @@ async function checkOcAuth() {
     const token = await getOcToken();
 
     if (!token) {
+      return {
+        authenticated: false,
+        status: 401,
+        error: OC_NOT_LOGGED_IN_ERROR,
+      };
+    }
+
+    const username = await validateOcSession();
+
+    if (!username) {
       return {
         authenticated: false,
         status: 401,

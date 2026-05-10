@@ -98,8 +98,23 @@ function App() {
         const response = await fetch("http://localhost:3000/api/namespaces")
         const data = await response.json().catch(() => ({}))
 
-        if (!response.ok || !Array.isArray(data.namespaces)) {
-          setNamespacesStatus("Unable to load projects")
+        if (response.status === 401) {
+          setNamespacesStatus(data.details || data.error || "OpenShift authentication failed")
+          return
+        }
+
+        if (response.status === 403) {
+          setNamespacesStatus(data.details || "Your oc user cannot list projects")
+          return
+        }
+
+        if (!response.ok) {
+          setNamespacesStatus(data.details || data.error || "Unable to load projects")
+          return
+        }
+
+        if (!Array.isArray(data.namespaces)) {
+          setNamespacesStatus("Unexpected projects response from backend")
           return
         }
 
@@ -108,7 +123,7 @@ function App() {
           data.namespaces.length > 0 ? "Choose a project" : "No projects found",
         )
       } catch {
-        setNamespacesStatus("Unable to load projects")
+        setNamespacesStatus("Unable to reach backend")
       }
     }
 
