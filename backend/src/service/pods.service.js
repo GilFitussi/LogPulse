@@ -38,7 +38,7 @@ function mapPod(pod) {
 async function listPods(namespace) {
   try {
     const client = await createKubeClient();
-    const response = await client.listNamespacedPod(namespace);
+    const response = await client.listNamespacedPod({ namespace });
     const podList = response?.body || response;
 
     return (podList?.items || []).map(mapPod);

@@ -43,6 +43,10 @@ function App() {
   const [namespacesStatus, setNamespacesStatus] = useState("Loading projects...")
   const [namespaceSearch, setNamespaceSearch] = useState("")
   const [selectedNamespace, setSelectedNamespace] = useState("")
+  const [pods, setPods] = useState([])
+  const [podsStatus, setPodsStatus] = useState("Select a project to load pods")
+  const [podSearch, setPodSearch] = useState("")
+  const [selectedPod, setSelectedPod] = useState("")
 
   useEffect(() => {
     const checkBackendHealth = async () => {
@@ -132,16 +136,87 @@ function App() {
     loadNamespaces()
   }, [])
 
+  useEffect(() => {
+    if (!selectedNamespace) {
+      return undefined
+    }
+
+    const controller = new AbortController()
+
+    const loadPods = async () => {
+      setPodsStatus("Loading pods...")
+
+      try {
+        const response = await fetch(
+          `http://localhost:3000/api/namespaces/${encodeURIComponent(selectedNamespace)}/pods`,
+          { signal: controller.signal },
+        )
+        const data = await response.json().catch(() => ({}))
+
+        if (response.status === 401) {
+          setPodsStatus(data.details || data.error || "OpenShift authentication failed")
+          return
+        }
+
+        if (response.status === 403) {
+          setPodsStatus(data.details || "Your oc user cannot list pods in this project")
+          return
+        }
+
+        if (!response.ok) {
+          setPodsStatus(data.details || data.error || "Unable to load pods")
+          return
+        }
+
+        if (!Array.isArray(data.pods)) {
+          setPodsStatus("Unexpected pods response from backend")
+          return
+        }
+
+        setPods(data.pods)
+        setPodsStatus(data.pods.length > 0 ? "Choose a pod" : "No pods found")
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          setPodsStatus("Unable to reach backend")
+        }
+      }
+    }
+
+    loadPods()
+
+    return () => controller.abort()
+  }, [selectedNamespace])
+
   const authContent = authStatusContent[authStatus]
   const filteredNamespaces = namespaces.filter((namespace) =>
     namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
   )
+  const podNames = pods.map((pod) => pod.name).filter(Boolean)
+  const filteredPodNames = podNames.filter((podName) =>
+    podName.toLowerCase().includes(podSearch.toLowerCase()),
+  )
 
   const handleNamespaceChange = (event) => {
     const value = event.target.value
+    const nextNamespace = namespaces.includes(value) ? value : ""
 
     setNamespaceSearch(value)
-    setSelectedNamespace(namespaces.includes(value) ? value : "")
+
+    if (nextNamespace !== selectedNamespace) {
+      setPods([])
+      setPodSearch("")
+      setSelectedPod("")
+      setPodsStatus(nextNamespace ? "Loading pods..." : "Select a project to load pods")
+    }
+
+    setSelectedNamespace(nextNamespace)
+  }
+
+  const handlePodChange = (event) => {
+    const value = event.target.value
+
+    setPodSearch(value)
+    setSelectedPod(podNames.includes(value) ? value : "")
   }
 
   return (
@@ -194,7 +269,26 @@ function App() {
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-base font-medium text-slate-900">Pod selector</h2>
-            <div className="mt-4 h-11 rounded-md border border-dashed border-slate-300 bg-slate-50" />
+            <label htmlFor="pod-selector" className="mt-4 block text-sm text-slate-700">
+              Pod
+            </label>
+            <input
+              id="pod-selector"
+              list="pod-options"
+              value={podSearch}
+              onChange={handlePodChange}
+              placeholder={selectedNamespace ? "Search pods..." : "Select a project first"}
+              disabled={!selectedNamespace}
+              className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            />
+            <datalist id="pod-options">
+              {filteredPodNames.map((podName) => (
+                <option key={podName} value={podName} />
+              ))}
+            </datalist>
+            <p className="mt-2 text-sm text-slate-600">
+              {selectedPod ? `Selected pod: ${selectedPod}` : podsStatus}
+            </p>
           </div>
         </section>
 

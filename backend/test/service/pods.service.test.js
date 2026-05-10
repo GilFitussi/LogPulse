@@ -51,7 +51,7 @@ describe("listPods", () => {
         restartCount: 6,
       },
     ]);
-    expect(listNamespacedPod).toHaveBeenCalledWith("my-project");
+    expect(listNamespacedPod).toHaveBeenCalledWith({ namespace: "my-project" });
   });
 
   it("handles Kubernetes client responses that wrap the pod list in body", async () => {
