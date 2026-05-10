@@ -15,7 +15,8 @@
     "@koa/cors": "^5.0.0",
     "@koa/router": "^15.5.0",
     "@kubernetes/client-node": "^1.4.0",
-    "koa": "^3.2.0"
+    "koa": "^3.2.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
     "jest": "^30.3.0",

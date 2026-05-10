@@ -1,6 +1,13 @@
 const { KubernetesApiError } = require("../errors/app.error");
 const { createKubeClient } = require("./kubeClient.service");
 
+const POD_NAME_PATTERN =
+	/^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+
+function isValidPod(pod) {
+	return typeof pod === "string" && pod.length > 0 && POD_NAME_PATTERN.test(pod);
+}
+
 function getRestartCount(pod) {
 	const statuses = [
 		...(pod.status?.initContainerStatuses || []),
@@ -39,5 +46,6 @@ async function listPods(namespace) {
 }
 
 module.exports = {
+	isValidPod,
 	listPods,
 };
