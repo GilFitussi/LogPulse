@@ -1,10 +1,9 @@
 const Router = require("@koa/router");
 const { isValidNamespace } = require("../service/namespaces.service");
+const { isValidPod } = require("../service/pods.service");
 const { streamPodLogs } = require("../service/logs.service");
 
 const router = new Router({ prefix: "/api" });
-const POD_NAME_PATTERN =
-	/^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
 
 function writeSseEvent(res, event, data) {
 	res.write(`event: ${event}\n`);
@@ -18,7 +17,7 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 		ctx.throw(400, "Invalid namespace");
 	}
 
-	if (!POD_NAME_PATTERN.test(pod)) {
+	if (!isValidPod(pod)) {
 		ctx.throw(400, "Invalid pod");
 	}
 

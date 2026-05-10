@@ -1,9 +1,24 @@
 const { createKubeClient } = require("../../src/service/kubeClient.service");
-const { listPods } = require("../../src/service/pods.service");
+const { isValidPod, listPods } = require("../../src/service/pods.service");
 
 jest.mock("../../src/service/kubeClient.service", () => ({
 	createKubeClient: jest.fn(),
 }));
+
+describe("isValidPod", () => {
+	it("accepts valid Kubernetes pod names", () => {
+		expect(isValidPod("api-123")).toBe(true);
+		expect(isValidPod("api.worker-123")).toBe(true);
+	});
+
+	it("rejects invalid Kubernetes pod names", () => {
+		expect(isValidPod("")).toBe(false);
+		expect(isValidPod("Api-123")).toBe(false);
+		expect(isValidPod("-api-123")).toBe(false);
+		expect(isValidPod("api-123-")).toBe(false);
+		expect(isValidPod(undefined)).toBe(false);
+	});
+});
 
 describe("listPods", () => {
 	beforeEach(() => {
