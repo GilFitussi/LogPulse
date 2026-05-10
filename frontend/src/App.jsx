@@ -1,5 +1,23 @@
 import { useEffect, useState } from "react";
 
+const API_BASE_URL = "http://localhost:3000";
+
+function formatLogEvent(data) {
+	if (typeof data === "string") {
+		return data;
+	}
+
+	if (data && typeof data === "object") {
+		const timestamp = typeof data.timestamp === "string" ? data.timestamp : "";
+		const line =
+			typeof data.line === "string" ? data.line : JSON.stringify(data);
+
+		return timestamp ? `${timestamp} ${line}` : line;
+	}
+
+	return String(data ?? "");
+}
+
 const AUTH_STATUS = {
 	CHECKING: "checking",
 	CONNECTED: "connected",
@@ -53,11 +71,15 @@ function App() {
 	const [podsStatus, setPodsStatus] = useState("Select a project to load pods");
 	const [podSearch, setPodSearch] = useState("");
 	const [selectedPod, setSelectedPod] = useState("");
+	const [logLines, setLogLines] = useState([]);
+	const [logStatus, setLogStatus] = useState(
+		"Select a project and pod to stream logs",
+	);
 
 	useEffect(() => {
 		const checkBackendHealth = async () => {
 			try {
-				const response = await fetch("http://localhost:3000/health");
+				const response = await fetch(`${API_BASE_URL}/health`);
 
 				if (!response.ok) {
 					setHealthStatus("Backend health check failed");
@@ -79,7 +101,7 @@ function App() {
 
 		const checkAuthStatus = async () => {
 			try {
-				const response = await fetch("http://localhost:3000/api/auth/status");
+				const response = await fetch(`${API_BASE_URL}/api/auth/status`);
 				const data = await response.json().catch(() => ({}));
 
 				if (response.ok && data.authenticated === true) {
@@ -108,7 +130,7 @@ function App() {
 
 		const loadNamespaces = async () => {
 			try {
-				const response = await fetch("http://localhost:3000/api/namespaces");
+				const response = await fetch(`${API_BASE_URL}/api/namespaces`);
 				const data = await response.json().catch(() => ({}));
 
 				if (response.status === 401) {
@@ -163,7 +185,7 @@ function App() {
 
 			try {
 				const response = await fetch(
-					`http://localhost:3000/api/namespaces/${encodeURIComponent(selectedNamespace)}/pods`,
+					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/pods`,
 					{ signal: controller.signal },
 				);
 				const data = await response.json().catch(() => ({}));
@@ -206,6 +228,53 @@ function App() {
 		return () => controller.abort();
 	}, [selectedNamespace]);
 
+	useEffect(() => {
+		if (!selectedNamespace || !selectedPod) {
+			return undefined;
+		}
+
+		const streamUrl = `${API_BASE_URL}/api/logs/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(selectedPod)}`;
+		const eventSource = new EventSource(streamUrl);
+
+		eventSource.onopen = () => {
+			setLogStatus("Connected to log stream");
+		};
+
+		eventSource.addEventListener("log", (event) => {
+			try {
+				const logLine = JSON.parse(event.data);
+				setLogLines((currentLines) => [
+					...currentLines,
+					formatLogEvent(logLine),
+				]);
+			} catch {
+				setLogLines((currentLines) => [...currentLines, event.data]);
+			}
+		});
+
+		eventSource.addEventListener("error", (event) => {
+			if (event.data) {
+				try {
+					const data = JSON.parse(event.data);
+					setLogStatus(data.details || data.error || "Log stream error");
+				} catch {
+					setLogStatus(event.data);
+				}
+				return;
+			}
+
+			setLogStatus("Log stream connection error");
+		});
+
+		eventSource.onerror = () => {
+			setLogStatus("Log stream connection error");
+		};
+
+		return () => {
+			eventSource.close();
+		};
+	}, [selectedNamespace, selectedPod]);
+
 	const authContent = authStatusContent[authStatus];
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
@@ -225,6 +294,8 @@ function App() {
 			setPods([]);
 			setPodSearch("");
 			setSelectedPod("");
+			setLogLines([]);
+			setLogStatus("Select a project and pod to stream logs");
 			setPodsStatus(
 				nextNamespace ? "Loading pods..." : "Select a project to load pods",
 			);
@@ -235,9 +306,16 @@ function App() {
 
 	const handlePodChange = (event) => {
 		const value = event.target.value;
+		const nextPod = podNames.includes(value) ? value : "";
 
 		setPodSearch(value);
-		setSelectedPod(podNames.includes(value) ? value : "");
+		setSelectedPod(nextPod);
+		setLogLines([]);
+		setLogStatus(
+			nextPod
+				? "Connecting to log stream..."
+				: "Select a project and pod to stream logs",
+		);
 	};
 
 	return (
@@ -332,10 +410,15 @@ function App() {
 				</section>
 
 				<section className="min-h-96 rounded-lg border border-slate-200 bg-white p-5">
-					<h2 className="text-base font-medium text-slate-900">
-						Log viewer area
-					</h2>
-					<div className="mt-4 h-72 rounded-md border border-dashed border-slate-300 bg-slate-950" />
+					<div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+						<h2 className="text-base font-medium text-slate-900">Live logs</h2>
+						<p className="text-sm text-slate-600">{logStatus}</p>
+					</div>
+					<pre className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100">
+						{logLines.length > 0
+							? logLines.join("\n")
+							: "No log lines received yet."}
+					</pre>
 				</section>
 			</div>
 		</main>
