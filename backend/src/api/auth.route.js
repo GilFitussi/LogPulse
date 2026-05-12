@@ -15,6 +15,8 @@ router.get("/status", async (ctx) => {
   ctx.body = {
     authenticated: false,
     error: authStatus.error,
+    code: authStatus.code,
+    action: authStatus.action,
   };
 });
 

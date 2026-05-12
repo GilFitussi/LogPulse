@@ -101,8 +101,9 @@ describe("listPods", () => {
 
 		await expect(listPods("missing-project")).rejects.toMatchObject({
 			status: 404,
-			message: "Kubernetes API error",
+			message: "Pod not found",
 			details: "namespace not found",
+			code: "POD_NOT_FOUND",
 			expose: true,
 		});
 	});
