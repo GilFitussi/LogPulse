@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { appendLogLines, getFilteredLogLines } from "./logBuffer";
 
@@ -19,6 +19,8 @@ function formatLogEvent(data) {
 
 	return String(data ?? "");
 }
+
+const LOG_SCROLL_BOTTOM_THRESHOLD = 8;
 
 const AUTH_STATUS = {
 	CHECKING: "checking",
@@ -77,6 +79,11 @@ function App() {
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
+	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
+	const [hasNewLogsWhilePaused, setHasNewLogsWhilePaused] = useState(false);
+	const logViewerRef = useRef(null);
+	const isLogAutoScrollPausedRef = useRef(false);
+	const previousRawLogLinesRef = useRef(rawLogLines);
 
 	useEffect(() => {
 		const checkBackendHealth = async () => {
@@ -282,6 +289,34 @@ function App() {
 
 	const authContent = authStatusContent[authStatus];
 	const filteredLogLines = getFilteredLogLines(rawLogLines);
+
+	useEffect(() => {
+		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
+	}, [isLogAutoScrollPaused]);
+
+	useEffect(() => {
+		const logViewer = logViewerRef.current;
+		const hasNewLogLines =
+			rawLogLines !== previousRawLogLinesRef.current &&
+			filteredLogLines.length > 0;
+
+		previousRawLogLinesRef.current = rawLogLines;
+
+		if (!logViewer) {
+			return;
+		}
+
+		if (isLogAutoScrollPausedRef.current) {
+			if (hasNewLogLines) {
+				setHasNewLogsWhilePaused(true);
+			}
+
+			return;
+		}
+
+		logViewer.scrollTop = logViewer.scrollHeight;
+		setHasNewLogsWhilePaused(false);
+	}, [rawLogLines, filteredLogLines.length]);
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
@@ -301,6 +336,8 @@ function App() {
 			setPodSearch("");
 			setSelectedPod("");
 			setRawLogLines([]);
+			setIsLogAutoScrollPaused(false);
+			setHasNewLogsWhilePaused(false);
 			setLogStatus("Select a project and pod to stream logs");
 			setPodsStatus(
 				nextNamespace ? "Loading pods..." : "Select a project to load pods",
@@ -317,11 +354,42 @@ function App() {
 		setPodSearch(value);
 		setSelectedPod(nextPod);
 		setRawLogLines([]);
+		setIsLogAutoScrollPaused(false);
+		setHasNewLogsWhilePaused(false);
 		setLogStatus(
 			nextPod
 				? "Connecting to log stream..."
 				: "Select a project and pod to stream logs",
 		);
+	};
+
+	const handleLogViewerScroll = () => {
+		const logViewer = logViewerRef.current;
+
+		if (!logViewer) {
+			return;
+		}
+
+		const distanceFromBottom =
+			logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
+		const isAtBottom = distanceFromBottom <= LOG_SCROLL_BOTTOM_THRESHOLD;
+
+		setIsLogAutoScrollPaused(!isAtBottom);
+
+		if (isAtBottom) {
+			setHasNewLogsWhilePaused(false);
+		}
+	};
+
+	const jumpToLatestLog = () => {
+		const logViewer = logViewerRef.current;
+
+		if (logViewer) {
+			logViewer.scrollTop = logViewer.scrollHeight;
+		}
+
+		setIsLogAutoScrollPaused(false);
+		setHasNewLogsWhilePaused(false);
 	};
 
 	return (
@@ -420,7 +488,25 @@ function App() {
 						<h2 className="text-base font-medium text-slate-900">Live logs</h2>
 						<p className="text-sm text-slate-600">{logStatus}</p>
 					</div>
-					<pre className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100">
+					{hasNewLogsWhilePaused && (
+						<p className="mt-3 text-sm text-slate-700">
+							New logs available while auto-scroll is paused.
+						</p>
+					)}
+					{(isLogAutoScrollPaused || hasNewLogsWhilePaused) && (
+						<button
+							type="button"
+							onClick={jumpToLatestLog}
+							className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+						>
+							Jump to latest
+						</button>
+					)}
+					<pre
+						ref={logViewerRef}
+						onScroll={handleLogViewerScroll}
+						className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100"
+					>
 						{filteredLogLines.length > 0
 							? filteredLogLines.join("\n")
 							: "No log lines received yet."}
