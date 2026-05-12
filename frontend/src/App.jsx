@@ -2,6 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { List } from "react-window";
 
 import {
+	AppShell,
+	PageContainer,
+	Panel,
+	SectionHeader,
+	ToolbarContainer,
+} from "@/components/layout/app-shell";
+import { ThemeToggle } from "@/components/theme-toggle";
+
+import {
 	LOG_SEVERITIES,
 	appendLogLines,
 	detectLogSeverity,
@@ -37,25 +46,29 @@ const severityFilterOptions = [
 		severity: LOG_SEVERITIES.ERROR,
 		label: "Error",
 		markerClassName: "bg-red-500 text-white",
-		buttonClassName: "border-red-300 bg-red-50 text-red-800",
+		buttonClassName:
+			"border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-300",
 	},
 	{
 		severity: LOG_SEVERITIES.WARN,
 		label: "Warn",
 		markerClassName: "bg-amber-400 text-amber-950",
-		buttonClassName: "border-amber-300 bg-amber-50 text-amber-800",
+		buttonClassName:
+			"border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 	},
 	{
 		severity: LOG_SEVERITIES.INFO,
 		label: "Info",
 		markerClassName: "bg-sky-400 text-sky-950",
-		buttonClassName: "border-sky-300 bg-sky-50 text-sky-800",
+		buttonClassName:
+			"border-sky-500/35 bg-sky-500/10 text-sky-700 dark:text-sky-300",
 	},
 	{
 		severity: LOG_SEVERITIES.DEBUG,
 		label: "Debug",
 		markerClassName: "bg-violet-400 text-violet-950",
-		buttonClassName: "border-violet-300 bg-violet-50 text-violet-800",
+		buttonClassName:
+			"border-violet-500/35 bg-violet-500/10 text-violet-700 dark:text-violet-300",
 	},
 ];
 
@@ -75,29 +88,31 @@ const authStatusContent = {
 	[AUTH_STATUS.CHECKING]: {
 		label: "Checking OpenShift authentication...",
 		message: "Verifying whether the backend can access your local oc session.",
-		className: "border-slate-200 bg-slate-50 text-slate-700",
+		className: "border-border bg-muted text-muted-foreground",
 	},
 	[AUTH_STATUS.CONNECTED]: {
 		label: "Connected",
 		message: "Backend can access your local OpenShift session.",
-		className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+		className:
+			"border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 	},
 	[AUTH_STATUS.NOT_LOGGED_IN]: {
 		label: "Not logged in",
 		message: "Please run oc login from your terminal.",
-		className: "border-amber-200 bg-amber-50 text-amber-800",
+		className:
+			"border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 	},
 	[AUTH_STATUS.OC_NOT_INSTALLED]: {
 		label: "oc not installed",
 		message:
 			"Install the OpenShift CLI and make sure oc is available in your PATH.",
-		className: "border-red-200 bg-red-50 text-red-800",
+		className: "border-destructive/30 bg-destructive/10 text-destructive",
 	},
 	[AUTH_STATUS.ERROR]: {
 		label: "Unable to check authentication",
 		message:
 			"The backend could not verify your OpenShift authentication status.",
-		className: "border-red-200 bg-red-50 text-red-800",
+		className: "border-destructive/30 bg-destructive/10 text-destructive",
 	},
 };
 
@@ -373,7 +388,7 @@ function renderHighlightedLogLine(line, searchText) {
 		highlightedParts.push(
 			<mark
 				key={`${matchIndex}-${highlightedParts.length}`}
-				className="rounded bg-amber-300 px-0.5 text-slate-950"
+				className="rounded bg-amber-300 px-0.5 text-foreground"
 			>
 				{line.slice(matchIndex, matchEndIndex)}
 			</mark>,
@@ -411,8 +426,8 @@ function LogLineRow({
 			type="button"
 			style={style}
 			onClick={() => onSelectLogLine({ index, line })}
-			className={`overflow-hidden whitespace-pre-wrap pr-4 text-left font-mono text-xs leading-5 text-slate-100 ${
-				isSelected ? "bg-slate-800" : "hover:bg-slate-900"
+			className={`overflow-hidden whitespace-pre-wrap pr-4 text-left font-mono text-xs leading-5 text-log-foreground ${
+				isSelected ? "bg-slate-800/80" : "hover:bg-slate-900/80"
 			}`}
 		>
 			<span
@@ -432,21 +447,23 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 	);
 
 	return (
-		<div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+		<div className="mt-4 rounded-md border border-border bg-panel p-4">
 			<div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
 				<div>
-					<h3 className="text-sm font-semibold text-slate-900">
+					<h3 className="text-sm font-semibold text-foreground">
 						Log density map
 					</h3>
-					<p className="mt-1 text-xs text-slate-600">
+					<p className="mt-1 text-xs text-muted-foreground">
 						{logLineCount} visible log lines bucketed by {densityData.mode}.
 					</p>
 				</div>
-				<p className="text-xs text-slate-500">Click a bar to jump near it.</p>
+				<p className="text-xs text-muted-foreground">
+					Click a bar to jump near it.
+				</p>
 			</div>
 			{densityData.buckets.length > 0 ? (
 				<div
-					className="mt-4 flex h-20 items-end gap-1 rounded-md border border-slate-200 bg-white px-2 py-2"
+					className="mt-4 flex h-20 items-end gap-1 rounded-md border border-border bg-card px-2 py-2"
 					aria-label="Log volume density timeline"
 				>
 					{densityData.buckets.map((bucket) => {
@@ -477,7 +494,7 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 											? "bg-rose-500"
 											: bucket.count > 0
 												? "bg-sky-500"
-												: "bg-slate-200"
+												: "bg-muted"
 									}`}
 									style={{ height: `${barHeight}px` }}
 								/>
@@ -486,7 +503,7 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 					})}
 				</div>
 			) : (
-				<p className="mt-3 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
+				<p className="mt-3 rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
 					Log volume appears here after logs arrive.
 				</p>
 			)}
@@ -986,41 +1003,45 @@ function App() {
 	};
 
 	return (
-		<main className="min-h-screen bg-slate-50 px-6 py-8">
-			<div className="mx-auto flex max-w-6xl flex-col gap-6">
-				<header className="border-b border-slate-200 pb-5">
-					<h1 className="text-3xl font-semibold text-slate-950">OS-LogPulse</h1>
-				</header>
+		<AppShell>
+			<PageContainer>
+				<ToolbarContainer as="header">
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+								OpenShift log explorer
+							</p>
+							<h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
+								OS-LogPulse
+							</h1>
+						</div>
+						<ThemeToggle />
+					</div>
+				</ToolbarContainer>
 
 				<section className="grid gap-4 md:grid-cols-2">
-					<div className="rounded-lg border border-slate-200 bg-white p-5">
-						<h2 className="text-base font-medium text-slate-900">
-							Backend status
-						</h2>
-						<p className="mt-2 text-sm text-slate-700">{healthStatus}</p>
-					</div>
+					<Panel>
+						<SectionHeader title="Backend status" />
+						<p className="mt-2 text-sm text-foreground/80">{healthStatus}</p>
+					</Panel>
 
-					<div className="rounded-lg border border-slate-200 bg-white p-5">
-						<h2 className="text-base font-medium text-slate-900">
-							OpenShift authentication
-						</h2>
+					<Panel>
+						<SectionHeader title="OpenShift authentication" />
 						<div
 							className={`mt-3 rounded-md border px-4 py-3 ${authContent.className}`}
 						>
 							<p className="text-sm font-medium">{authContent.label}</p>
 							<p className="mt-1 text-sm">{authContent.message}</p>
 						</div>
-					</div>
+					</Panel>
 				</section>
 
 				<section className="grid gap-4 md:grid-cols-2">
-					<div className="rounded-lg border border-slate-200 bg-white p-5">
-						<h2 className="text-base font-medium text-slate-900">
-							Project selector
-						</h2>
+					<Panel>
+						<SectionHeader title="Project selector" />
 						<label
 							htmlFor="namespace-selector"
-							className="mt-4 block text-sm text-slate-700"
+							className="mt-4 block text-sm text-foreground/80"
 						>
 							OpenShift project / namespace
 						</label>
@@ -1030,27 +1051,25 @@ function App() {
 							value={namespaceSearch}
 							onChange={handleNamespaceChange}
 							placeholder="Search projects..."
-							className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+							className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
 						/>
 						<datalist id="namespace-options">
 							{filteredNamespaces.map((namespace) => (
 								<option key={namespace} value={namespace} />
 							))}
 						</datalist>
-						<p className="mt-2 text-sm text-slate-600">
+						<p className="mt-2 text-sm text-muted-foreground">
 							{selectedNamespace
 								? `Selected project: ${selectedNamespace}`
 								: namespacesStatus}
 						</p>
-					</div>
+					</Panel>
 
-					<div className="rounded-lg border border-slate-200 bg-white p-5">
-						<h2 className="text-base font-medium text-slate-900">
-							Pod selector
-						</h2>
+					<Panel>
+						<SectionHeader title="Pod selector" />
 						<label
 							htmlFor="pod-selector"
-							className="mt-4 block text-sm text-slate-700"
+							className="mt-4 block text-sm text-foreground/80"
 						>
 							Pod
 						</label>
@@ -1063,26 +1082,23 @@ function App() {
 								selectedNamespace ? "Search pods..." : "Select a project first"
 							}
 							disabled={!selectedNamespace}
-							className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+							className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 						/>
 						<datalist id="pod-options">
 							{filteredPodNames.map((podName) => (
 								<option key={podName} value={podName} />
 							))}
 						</datalist>
-						<p className="mt-2 text-sm text-slate-600">
+						<p className="mt-2 text-sm text-muted-foreground">
 							{selectedPod ? `Selected pod: ${selectedPod}` : podsStatus}
 						</p>
-					</div>
+					</Panel>
 				</section>
 
-				<section className="min-h-96 rounded-lg border border-slate-200 bg-white p-5">
-					<div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-						<h2 className="text-base font-medium text-slate-900">Live logs</h2>
-						<p className="text-sm text-slate-600">{logStatus}</p>
-					</div>
+				<Panel className="min-h-96">
+					<SectionHeader title="Live logs" description={logStatus} />
 					{hasNewLogsWhilePaused && (
-						<p className="mt-3 text-sm text-slate-700">
+						<p className="mt-3 text-sm text-foreground/80">
 							New logs available while auto-scroll is paused.
 						</p>
 					)}
@@ -1090,7 +1106,7 @@ function App() {
 						<button
 							type="button"
 							onClick={jumpToLatestLog}
-							className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+							className="mt-3 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
 						>
 							Jump to latest
 						</button>
@@ -1100,7 +1116,7 @@ function App() {
 							<div className="flex-1">
 								<label
 									htmlFor="log-search"
-									className="block text-sm text-slate-700"
+									className="block text-sm text-foreground/80"
 								>
 									Search current log buffer
 								</label>
@@ -1109,20 +1125,20 @@ function App() {
 									value={logSearch}
 									onChange={(event) => setLogSearch(event.target.value)}
 									placeholder="Filter logs by text..."
-									className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+									className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
 								/>
 							</div>
 							<button
 								type="button"
 								onClick={clearLogSearch}
 								disabled={!hasActiveLogSearch}
-								className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								className="h-11 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 							>
 								Clear search
 							</button>
 						</div>
 						<div>
-							<p className="text-sm text-slate-700">Severity filters</p>
+							<p className="text-sm text-foreground/80">Severity filters</p>
 							<div className="mt-2 flex flex-wrap gap-2">
 								{severityFilterOptions.map((option) => {
 									const isActive = activeSeverityFilters.includes(
@@ -1138,7 +1154,7 @@ function App() {
 											className={`rounded-md border px-3 py-2 text-sm font-medium ${
 												isActive
 													? option.buttonClassName
-													: "border-slate-300 bg-white text-slate-700"
+													: "border-input bg-background text-foreground/80"
 											}`}
 										>
 											{option.label}
@@ -1149,7 +1165,7 @@ function App() {
 									type="button"
 									onClick={clearSeverityFilters}
 									disabled={!hasActiveSeverityFilters}
-									className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+									className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 								>
 									Clear severity
 								</button>
@@ -1157,18 +1173,18 @@ function App() {
 						</div>
 					</div>
 					{hasActiveLogFilters && (
-						<p className="mt-2 text-sm text-slate-600">
+						<p className="mt-2 text-sm text-muted-foreground">
 							Showing {filteredLogLines.length} of {rawLogLines.length} buffered
 							log lines.
 						</p>
 					)}
-					<div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+					<div className="mt-4 rounded-md border border-border bg-panel p-4">
 						<div className="flex flex-wrap items-center gap-2">
 							<button
 								type="button"
 								onClick={copySelectedLogLine}
 								disabled={!selectedLogLine}
-								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 							>
 								Copy selected line
 							</button>
@@ -1176,7 +1192,7 @@ function App() {
 								type="button"
 								onClick={copyVisibleLogLines}
 								disabled={filteredLogLines.length === 0}
-								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 							>
 								Copy visible logs
 							</button>
@@ -1184,7 +1200,7 @@ function App() {
 								type="button"
 								onClick={exportLogLinesAsText}
 								disabled={exportLogLines.length === 0}
-								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 							>
 								Export .txt
 							</button>
@@ -1192,23 +1208,23 @@ function App() {
 								type="button"
 								onClick={exportLogLinesAsJson}
 								disabled={exportLogLines.length === 0}
-								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
 							>
 								Export .json
 							</button>
 						</div>
-						<label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+						<label className="mt-3 flex items-center gap-2 text-sm text-foreground/80">
 							<input
 								type="checkbox"
 								checked={includeFilteredOutLogsForExport}
 								onChange={(event) =>
 									setIncludeFilteredOutLogsForExport(event.target.checked)
 								}
-								className="h-4 w-4 rounded border-slate-300"
+								className="h-4 w-4 rounded border-input"
 							/>
 							Include filtered-out logs in exports
 						</label>
-						<p className="mt-2 text-xs text-slate-600">
+						<p className="mt-2 text-xs text-muted-foreground">
 							Exports use {exportLogLines.length}{" "}
 							{includeFilteredOutLogsForExport
 								? "buffered"
@@ -1216,7 +1232,7 @@ function App() {
 							log lines.
 						</p>
 						{logTransferStatus && (
-							<p className="mt-2 text-sm text-slate-700" role="status">
+							<p className="mt-2 text-sm text-foreground/80" role="status">
 								{logTransferStatus}
 							</p>
 						)}
@@ -1241,61 +1257,63 @@ function App() {
 									selectedLogLine,
 								}}
 								overscanCount={8}
-								className="mt-4 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100"
+								className="mt-4 overflow-auto rounded-md border border-border bg-log p-4 font-mono text-xs leading-5 text-log-foreground"
 								style={{ height: LOG_LIST_HEIGHT }}
 							/>
 						) : (
-							<div className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-100">
+							<div className="mt-4 h-72 overflow-auto rounded-md border border-border bg-log p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground">
 								{hasActiveLogFilters
 									? "No log lines match your filters."
 									: "No log lines received yet."}
 							</div>
 						)}
 						{selectedLogLine && selectedLogLineMetadata && (
-							<aside className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+							<aside className="mt-4 rounded-md border border-border bg-panel p-4">
 								<div className="flex items-start justify-between gap-3">
 									<div>
-										<h3 className="text-sm font-semibold text-slate-900">
+										<h3 className="text-sm font-semibold text-foreground">
 											Log line details
 										</h3>
-										<p className="mt-1 text-xs text-slate-600">
+										<p className="mt-1 text-xs text-muted-foreground">
 											Inspect the selected log entry.
 										</p>
 									</div>
 									<button
 										type="button"
 										onClick={closeLogLineDetails}
-										className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
+										className="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground"
 									>
 										Close
 									</button>
 								</div>
 								<div className="mt-4 space-y-3 text-sm">
 									<div>
-										<p className="font-medium text-slate-700">
+										<p className="font-medium text-foreground/80">
 											Structured JSON
 										</p>
 										{selectedLogLineFormattedJson ? (
-											<pre className="mt-2 max-h-72 overflow-auto whitespace-pre rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900">
+											<pre className="mt-2 max-h-72 overflow-auto whitespace-pre rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">
 												{selectedLogLineFormattedJson}
 											</pre>
 										) : (
-											<p className="mt-2 rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-600">
+											<p className="mt-2 rounded-md border border-border bg-card p-3 text-xs text-muted-foreground">
 												No valid JSON object or array found in this log line.
 											</p>
 										)}
 									</div>
 									<div>
-										<p className="font-medium text-slate-700">Raw log text</p>
-										<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900">
+										<p className="font-medium text-foreground/80">
+											Raw log text
+										</p>
+										<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">
 											{selectedLogLine.line}
 										</pre>
 									</div>
 									<div>
-										<p className="font-medium text-slate-700">
+										<p className="font-medium text-foreground/80">
 											Parsed metadata
 										</p>
-										<dl className="mt-2 grid gap-2 rounded-md border border-slate-200 bg-white p-3 text-xs">
+										<dl className="mt-2 grid gap-2 rounded-md border border-border bg-card p-3 text-xs">
 											{[
 												["timestamp", selectedLogLineMetadata.timestamp],
 												["severity", selectedLogLineMetadata.severity],
@@ -1303,10 +1321,10 @@ function App() {
 												["pod", selectedLogLineMetadata.pod],
 											].map(([label, value]) => (
 												<div key={label} className="grid grid-cols-3 gap-2">
-													<dt className="font-medium capitalize text-slate-600">
+													<dt className="font-medium capitalize text-muted-foreground">
 														{label}
 													</dt>
-													<dd className="col-span-2 break-words text-slate-900">
+													<dd className="col-span-2 break-words text-foreground">
 														{value || "Not available"}
 													</dd>
 												</div>
@@ -1317,9 +1335,9 @@ function App() {
 							</aside>
 						)}
 					</div>
-				</section>
-			</div>
-		</main>
+				</Panel>
+			</PageContainer>
+		</AppShell>
 	);
 }
 
