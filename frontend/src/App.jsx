@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { List } from "react-window";
 
 import {
@@ -29,6 +29,8 @@ function formatLogEvent(data) {
 const LOG_SCROLL_BOTTOM_THRESHOLD = 8;
 const LOG_LIST_HEIGHT = 288;
 const LOG_ROW_HEIGHT = 20;
+const LOG_DENSITY_BUCKET_COUNT = 36;
+const LOG_DENSITY_MAX_BAR_HEIGHT = 56;
 
 const severityFilterOptions = [
 	{
@@ -111,6 +113,108 @@ function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
 		namespace: selectedNamespace || "",
 		pod: selectedPod || "",
 	};
+}
+
+function getLogTimestampMs(line) {
+	const { timestamp } = parseLogLineMetadata(line, "", "");
+
+	if (!timestamp) {
+		return null;
+	}
+
+	const normalizedTimestamp = timestamp.includes("T")
+		? timestamp
+		: timestamp.replace(" ", "T");
+	const timestampMs = Date.parse(normalizedTimestamp);
+
+	return Number.isNaN(timestampMs) ? null : timestampMs;
+}
+
+function formatDensityBucketLabel(bucket, mode) {
+	if (
+		mode === "time" &&
+		bucket.startTimeMs !== null &&
+		bucket.endTimeMs !== null
+	) {
+		const startTime = new Date(bucket.startTimeMs).toLocaleTimeString();
+		const endTime = new Date(bucket.endTimeMs).toLocaleTimeString();
+
+		return `${startTime} - ${endTime}`;
+	}
+
+	return `Lines ${bucket.startIndex + 1}-${bucket.endIndex + 1}`;
+}
+
+function buildLogDensityBuckets(
+	logLines,
+	bucketCount = LOG_DENSITY_BUCKET_COUNT,
+) {
+	if (logLines.length === 0) {
+		return { buckets: [], mode: "index" };
+	}
+
+	const timestampedLines = logLines
+		.map((line, index) => ({ index, timestampMs: getLogTimestampMs(line) }))
+		.filter(({ timestampMs }) => timestampMs !== null)
+		.sort(
+			(firstLine, secondLine) => firstLine.timestampMs - secondLine.timestampMs,
+		);
+	const canUseTimeBuckets =
+		timestampedLines.length === logLines.length && timestampedLines.length >= 2;
+	const bucketsLength = Math.min(bucketCount, logLines.length);
+	const buckets = Array.from({ length: bucketsLength }, (_, bucketIndex) => ({
+		count: 0,
+		endIndex: 0,
+		endTimeMs: null,
+		index: bucketIndex,
+		startIndex: logLines.length - 1,
+		startTimeMs: null,
+	}));
+
+	if (canUseTimeBuckets) {
+		const firstTimestampMs = timestampedLines[0].timestampMs;
+		const lastTimestampMs =
+			timestampedLines[timestampedLines.length - 1].timestampMs;
+		const timeRangeMs = Math.max(1, lastTimestampMs - firstTimestampMs);
+
+		timestampedLines.forEach(({ index, timestampMs }) => {
+			const bucketIndex = Math.min(
+				bucketsLength - 1,
+				Math.floor(
+					((timestampMs - firstTimestampMs) / timeRangeMs) * bucketsLength,
+				),
+			);
+			const bucket = buckets[bucketIndex];
+
+			bucket.count += 1;
+			bucket.startIndex = Math.min(bucket.startIndex, index);
+			bucket.endIndex = Math.max(bucket.endIndex, index);
+			bucket.startTimeMs =
+				bucket.startTimeMs === null
+					? timestampMs
+					: Math.min(bucket.startTimeMs, timestampMs);
+			bucket.endTimeMs =
+				bucket.endTimeMs === null
+					? timestampMs
+					: Math.max(bucket.endTimeMs, timestampMs);
+		});
+
+		return { buckets, mode: "time" };
+	}
+
+	logLines.forEach((_, index) => {
+		const bucketIndex = Math.min(
+			bucketsLength - 1,
+			Math.floor((index / logLines.length) * bucketsLength),
+		);
+		const bucket = buckets[bucketIndex];
+
+		bucket.count += 1;
+		bucket.startIndex = Math.min(bucket.startIndex, index);
+		bucket.endIndex = Math.max(bucket.endIndex, index);
+	});
+
+	return { buckets, mode: "index" };
 }
 
 function parseStructuredJsonFromLogLine(line) {
@@ -318,6 +422,75 @@ function LogLineRow({
 			</span>
 			{renderHighlightedLogLine(line, logSearch)}
 		</button>
+	);
+}
+
+function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
+	const maxBucketCount = Math.max(
+		1,
+		...densityData.buckets.map((bucket) => bucket.count),
+	);
+
+	return (
+		<div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+			<div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+				<div>
+					<h3 className="text-sm font-semibold text-slate-900">
+						Log density map
+					</h3>
+					<p className="mt-1 text-xs text-slate-600">
+						{logLineCount} visible log lines bucketed by {densityData.mode}.
+					</p>
+				</div>
+				<p className="text-xs text-slate-500">Click a bar to jump near it.</p>
+			</div>
+			{densityData.buckets.length > 0 ? (
+				<div
+					className="mt-4 flex h-20 items-end gap-1 rounded-md border border-slate-200 bg-white px-2 py-2"
+					aria-label="Log volume density timeline"
+				>
+					{densityData.buckets.map((bucket) => {
+						const barHeight = Math.max(
+							4,
+							Math.round(
+								(bucket.count / maxBucketCount) * LOG_DENSITY_MAX_BAR_HEIGHT,
+							),
+						);
+						const label = `${bucket.count} logs, ${formatDensityBucketLabel(
+							bucket,
+							densityData.mode,
+						)}`;
+
+						return (
+							<button
+								key={bucket.index}
+								type="button"
+								onClick={() => onBucketClick(bucket)}
+								disabled={bucket.count === 0}
+								className="flex min-w-0 flex-1 items-end justify-center rounded-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed"
+								aria-label={label}
+								title={label}
+							>
+								<span
+									className={`block w-full rounded-sm ${
+										bucket.count === maxBucketCount
+											? "bg-rose-500"
+											: bucket.count > 0
+												? "bg-sky-500"
+												: "bg-slate-200"
+									}`}
+									style={{ height: `${barHeight}px` }}
+								/>
+							</button>
+						);
+					})}
+				</div>
+			) : (
+				<p className="mt-3 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
+					Log volume appears here after logs arrive.
+				</p>
+			)}
+		</div>
 	);
 }
 
@@ -560,6 +733,10 @@ function App() {
 		logSearch,
 		activeSeverityFilters,
 	);
+	const logDensityData = useMemo(
+		() => buildLogDensityBuckets(filteredLogLines),
+		[filteredLogLines],
+	);
 	const hasActiveLogSearch = logSearch.trim().length > 0;
 	const hasActiveSeverityFilters = activeSeverityFilters.length > 0;
 	const hasActiveLogFilters = hasActiveLogSearch || hasActiveSeverityFilters;
@@ -683,6 +860,27 @@ function App() {
 
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
+	};
+
+	const jumpToDensityBucket = (bucket) => {
+		if (bucket.count === 0 || filteredLogLines.length === 0) {
+			return;
+		}
+
+		const targetIndex = Math.min(
+			filteredLogLines.length - 1,
+			Math.max(0, bucket.startIndex),
+		);
+
+		logListRef.current?.scrollToRow({
+			align: "start",
+			index: targetIndex,
+		});
+		setSelectedLogLine({
+			index: targetIndex,
+			line: filteredLogLines[targetIndex],
+		});
+		setIsLogAutoScrollPaused(true);
 	};
 
 	const clearLogSearch = () => {
@@ -1011,7 +1209,11 @@ function App() {
 							Include filtered-out logs in exports
 						</label>
 						<p className="mt-2 text-xs text-slate-600">
-							Exports use {exportLogLines.length} {includeFilteredOutLogsForExport ? "buffered" : "visible filtered"} log lines.
+							Exports use {exportLogLines.length}{" "}
+							{includeFilteredOutLogsForExport
+								? "buffered"
+								: "visible filtered"}{" "}
+							log lines.
 						</p>
 						{logTransferStatus && (
 							<p className="mt-2 text-sm text-slate-700" role="status">
@@ -1019,6 +1221,11 @@ function App() {
 							</p>
 						)}
 					</div>
+					<LogDensityMap
+						densityData={logDensityData}
+						logLineCount={filteredLogLines.length}
+						onBucketClick={jumpToDensityBucket}
+					/>
 					<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
 						{filteredLogLines.length > 0 ? (
 							<List
