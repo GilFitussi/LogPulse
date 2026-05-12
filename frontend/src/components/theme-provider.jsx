@@ -3,18 +3,12 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 const THEME_STORAGE_KEY = "os-logexplorer-theme";
 const ThemeProviderContext = createContext(null);
 
-function getSystemTheme() {
-	if (typeof window === "undefined") {
-		return "light";
-	}
-
-	return window.matchMedia("(prefers-color-scheme: dark)").matches
-		? "dark"
-		: "light";
+function normalizeTheme(theme) {
+	return theme === "dark" ? "dark" : "light";
 }
 
 function applyTheme(theme) {
-	const resolvedTheme = theme === "system" ? getSystemTheme() : theme;
+	const resolvedTheme = normalizeTheme(theme);
 	const root = document.documentElement;
 
 	root.classList.remove("light", "dark");
@@ -22,40 +16,30 @@ function applyTheme(theme) {
 	root.style.colorScheme = resolvedTheme;
 }
 
-export function ThemeProvider({ children, defaultTheme = "system" }) {
+export function ThemeProvider({ children, defaultTheme = "light" }) {
 	const [theme, setThemeState] = useState(() => {
 		if (typeof window === "undefined") {
-			return defaultTheme;
+			return normalizeTheme(defaultTheme);
 		}
 
-		return localStorage.getItem(THEME_STORAGE_KEY) || defaultTheme;
+		return normalizeTheme(
+			localStorage.getItem(THEME_STORAGE_KEY) || defaultTheme,
+		);
 	});
 
 	useEffect(() => {
 		applyTheme(theme);
 	}, [theme]);
 
-	useEffect(() => {
-		const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-		const handleSystemThemeChange = () => {
-			if (theme === "system") {
-				applyTheme("system");
-			}
-		};
-
-		mediaQuery.addEventListener("change", handleSystemThemeChange);
-
-		return () =>
-			mediaQuery.removeEventListener("change", handleSystemThemeChange);
-	}, [theme]);
-
 	const value = useMemo(
 		() => ({
 			theme,
-			resolvedTheme: theme === "system" ? getSystemTheme() : theme,
+			resolvedTheme: theme,
 			setTheme: (nextTheme) => {
-				localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-				setThemeState(nextTheme);
+				const normalizedTheme = normalizeTheme(nextTheme);
+
+				localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme);
+				setThemeState(normalizedTheme);
 			},
 		}),
 		[theme],

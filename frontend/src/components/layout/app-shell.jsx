@@ -18,12 +18,20 @@ export function PageContainer({ children, className }) {
 	return (
 		<div
 			className={cn(
-				"mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8",
+				"mx-auto flex w-full max-w-[96rem] flex-1 flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8",
 				className,
 			)}
 		>
 			{children}
 		</div>
+	);
+}
+
+export function ContentLayout({ children, className }) {
+	return (
+		<main className={cn("flex flex-1 flex-col gap-3", className)}>
+			{children}
+		</main>
 	);
 }
 
@@ -44,7 +52,7 @@ export function Panel({ children, className, as: Comp = "section" }) {
 	return (
 		<Comp
 			className={cn(
-				"rounded-xl border border-border bg-card p-5 text-card-foreground shadow-sm",
+				"rounded-lg border border-border/80 bg-card/80 p-3 text-card-foreground shadow-sm sm:p-4",
 				className,
 			)}
 		>
