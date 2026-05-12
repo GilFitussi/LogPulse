@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, FileJson, MoreHorizontal, X } from "lucide-react";
+import {
+	Copy,
+	Download,
+	FileJson,
+	MoreHorizontal,
+	Pause,
+	Play,
+	X,
+} from "lucide-react";
 import { List } from "react-window";
 
 import {
@@ -434,7 +442,7 @@ function LogLineRow({
 			>
 				{severityOption.label}
 			</span>
-			<span className="min-w-0 whitespace-pre-wrap break-words text-log-foreground">
+			<span className="min-w-0 overflow-hidden text-ellipsis whitespace-pre text-log-foreground">
 				{renderHighlightedLogLine(message || line, logSearch)}
 			</span>
 		</button>
@@ -523,10 +531,10 @@ function App() {
 		"Select a project and pod to stream logs",
 	);
 	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
-	const [hasNewLogsWhilePaused, setHasNewLogsWhilePaused] = useState(false);
+	const [newLogCountWhilePaused, setNewLogCountWhilePaused] = useState(0);
 	const logListRef = useRef(null);
 	const isLogAutoScrollPausedRef = useRef(false);
-	const previousRawLogLinesRef = useRef(rawLogLines);
+	const previousFilteredLogLineCountRef = useRef(0);
 
 	useEffect(() => {
 		const checkBackendHealth = async () => {
@@ -793,24 +801,28 @@ function App() {
 	}, [isLogAutoScrollPaused]);
 
 	useEffect(() => {
-		const hasNewLogLines =
-			rawLogLines !== previousRawLogLinesRef.current &&
-			filteredLogLines.length > 0;
+		const previousFilteredLogLineCount =
+			previousFilteredLogLineCountRef.current;
+		const newVisibleLogLineCount = Math.max(
+			0,
+			filteredLogLines.length - previousFilteredLogLineCount,
+		);
 
-		previousRawLogLinesRef.current = rawLogLines;
+		previousFilteredLogLineCountRef.current = filteredLogLines.length;
 
 		if (isLogAutoScrollPausedRef.current) {
-			if (hasNewLogLines) {
-				setHasNewLogsWhilePaused(true);
+			if (newVisibleLogLineCount > 0) {
+				setNewLogCountWhilePaused(
+					(currentCount) => currentCount + newVisibleLogLineCount,
+				);
 			}
 
 			return;
 		}
 
 		scrollToLatestVisibleLog();
-
-		setHasNewLogsWhilePaused(false);
-	}, [rawLogLines, filteredLogLines.length, scrollToLatestVisibleLog]);
+		setNewLogCountWhilePaused(0);
+	}, [filteredLogLines.length, scrollToLatestVisibleLog]);
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
@@ -841,7 +853,7 @@ function App() {
 			setIncludeFilteredOutLogsForExport(false);
 			setLogTransferStatus("");
 			setIsLogAutoScrollPaused(false);
-			setHasNewLogsWhilePaused(false);
+			setNewLogCountWhilePaused(0);
 			setLogStatus("Select a project and pod to stream logs");
 			setPodsStatus(
 				resolvedNamespace ? "Loading pods..." : "Select a project to load pods",
@@ -874,7 +886,7 @@ function App() {
 		setIncludeFilteredOutLogsForExport(false);
 		setLogTransferStatus("");
 		setIsLogAutoScrollPaused(false);
-		setHasNewLogsWhilePaused(false);
+		setNewLogCountWhilePaused(0);
 		setLogStatus(
 			resolvedPod
 				? "Connecting to log stream..."
@@ -896,15 +908,20 @@ function App() {
 		setIsLogAutoScrollPaused(!isAtBottom);
 
 		if (isAtBottom) {
-			setHasNewLogsWhilePaused(false);
+			setNewLogCountWhilePaused(0);
 		}
+	};
+
+	const pauseLogFollowing = () => {
+		isLogAutoScrollPausedRef.current = true;
+		setIsLogAutoScrollPaused(true);
 	};
 
 	const jumpToLatestLog = () => {
 		scrollToLatestVisibleLog();
 		isLogAutoScrollPausedRef.current = false;
 		setIsLogAutoScrollPaused(false);
-		setHasNewLogsWhilePaused(false);
+		setNewLogCountWhilePaused(0);
 	};
 
 	const jumpToDensityBucket = (bucket) => {
@@ -925,6 +942,7 @@ function App() {
 			index: targetIndex,
 			line: filteredLogLines[targetIndex],
 		});
+		isLogAutoScrollPausedRef.current = true;
 		setIsLogAutoScrollPaused(true);
 	};
 
@@ -1037,9 +1055,9 @@ function App() {
 	const connectionLabel = isLogStreamConnected
 		? "Connected to log stream"
 		: "Select a target to stream logs";
+	const hasNewLogsWhilePaused = newLogCountWhilePaused > 0;
 	const canJumpToLatestLog =
-		(isLogAutoScrollPaused || hasNewLogsWhilePaused) &&
-		filteredLogLines.length > 0;
+		isLogAutoScrollPaused && filteredLogLines.length > 0;
 
 	return (
 		<AppShell>
@@ -1147,14 +1165,29 @@ function App() {
 				}
 				utilityActions={
 					<>
-						{canJumpToLatestLog && (
+						{isLogAutoScrollPaused ? (
 							<ToolbarButton
 								type="button"
 								onClick={jumpToLatestLog}
+								disabled={!canJumpToLatestLog}
 								aria-label="Resume following latest visible log"
 								title="Resume following latest visible log"
 							>
-								Follow
+								<Play className="size-3.5" aria-hidden="true" />
+								{hasNewLogsWhilePaused
+									? `Follow (${newLogCountWhilePaused} new)`
+									: "Follow"}
+							</ToolbarButton>
+						) : (
+							<ToolbarButton
+								type="button"
+								onClick={pauseLogFollowing}
+								disabled={filteredLogLines.length === 0}
+								aria-label="Pause following latest logs"
+								title="Pause following latest logs"
+							>
+								<Pause className="size-3.5" aria-hidden="true" />
+								Pause
 							</ToolbarButton>
 						)}
 						<label
@@ -1225,22 +1258,35 @@ function App() {
 						/>
 						<div>
 							{filteredLogLines.length > 0 ? (
-								<List
-									listRef={logListRef}
-									onScroll={handleLogViewerScroll}
-									rowComponent={LogLineRow}
-									rowCount={filteredLogLines.length}
-									rowHeight={LOG_ROW_HEIGHT}
-									rowProps={{
-										logLinesStore,
-										logSearch,
-										onSelectLogLine: setSelectedLogLine,
-										selectedLogLine,
-									}}
-									overscanCount={8}
-									className="mt-2 overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 text-log-foreground ring-1 ring-border/50"
-									style={{ height: LOG_LIST_HEIGHT }}
-								/>
+								<div className="relative mt-2">
+									<List
+										listRef={logListRef}
+										onScroll={handleLogViewerScroll}
+										rowComponent={LogLineRow}
+										rowCount={filteredLogLines.length}
+										rowHeight={LOG_ROW_HEIGHT}
+										rowProps={{
+											logLinesStore,
+											logSearch,
+											onSelectLogLine: setSelectedLogLine,
+											selectedLogLine,
+										}}
+										overscanCount={8}
+										className="overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 text-log-foreground ring-1 ring-border/50"
+										style={{ height: LOG_LIST_HEIGHT }}
+									/>
+									{canJumpToLatestLog && (
+										<button
+											type="button"
+											onClick={jumpToLatestLog}
+											className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
+										>
+											{hasNewLogsWhilePaused
+												? `${newLogCountWhilePaused} new logs — jump to latest`
+												: "Jump to latest"}
+										</button>
+									)}
+								</div>
 							) : (
 								<div className="mt-2 h-[35rem] overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground ring-1 ring-border/50">
 									{hasActiveLogFilters
