@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { appendLogLines, getFilteredLogLines } from "./logBuffer";
+
 const API_BASE_URL = "http://localhost:3000";
 
 function formatLogEvent(data) {
@@ -71,7 +73,7 @@ function App() {
 	const [podsStatus, setPodsStatus] = useState("Select a project to load pods");
 	const [podSearch, setPodSearch] = useState("");
 	const [selectedPod, setSelectedPod] = useState("");
-	const [logLines, setLogLines] = useState([]);
+	const [rawLogLines, setRawLogLines] = useState([]);
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
@@ -245,12 +247,13 @@ function App() {
 				const logBatch = JSON.parse(event.data);
 				const logLines = Array.isArray(logBatch) ? logBatch : [logBatch];
 
-				setLogLines((currentLines) => [
-					...currentLines,
-					...logLines.map(formatLogEvent),
-				]);
+				setRawLogLines((currentLines) =>
+					appendLogLines(currentLines, logLines.map(formatLogEvent)),
+				);
 			} catch {
-				setLogLines((currentLines) => [...currentLines, event.data]);
+				setRawLogLines((currentLines) =>
+					appendLogLines(currentLines, event.data),
+				);
 			}
 		});
 
@@ -278,6 +281,7 @@ function App() {
 	}, [selectedNamespace, selectedPod]);
 
 	const authContent = authStatusContent[authStatus];
+	const filteredLogLines = getFilteredLogLines(rawLogLines);
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
@@ -296,7 +300,7 @@ function App() {
 			setPods([]);
 			setPodSearch("");
 			setSelectedPod("");
-			setLogLines([]);
+			setRawLogLines([]);
 			setLogStatus("Select a project and pod to stream logs");
 			setPodsStatus(
 				nextNamespace ? "Loading pods..." : "Select a project to load pods",
@@ -312,7 +316,7 @@ function App() {
 
 		setPodSearch(value);
 		setSelectedPod(nextPod);
-		setLogLines([]);
+		setRawLogLines([]);
 		setLogStatus(
 			nextPod
 				? "Connecting to log stream..."
@@ -417,8 +421,8 @@ function App() {
 						<p className="text-sm text-slate-600">{logStatus}</p>
 					</div>
 					<pre className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100">
-						{logLines.length > 0
-							? logLines.join("\n")
+						{filteredLogLines.length > 0
+							? filteredLogLines.join("\n")
 							: "No log lines received yet."}
 					</pre>
 				</section>
