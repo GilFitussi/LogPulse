@@ -7,6 +7,8 @@ async function errorMiddleware(ctx, next) {
       ctx.body = {
         error: error.message,
         details: error.details,
+        code: error.code,
+        action: error.action,
       };
       return;
     }

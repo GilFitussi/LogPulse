@@ -97,8 +97,9 @@ describe("streamPodLogs", () => {
 		await expect(
 			streamPodLogs("my-project", "missing", jest.fn()),
 		).rejects.toMatchObject({
-			message: "Kubernetes API error",
+			message: "Pod not found",
 			details: 'pods "missing" not found',
+			code: "POD_NOT_FOUND",
 			status: 404,
 		});
 	});

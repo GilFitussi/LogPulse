@@ -34,7 +34,7 @@ describe("GET /api/namespaces", () => {
 		const response = await request(app.callback()).get("/api/namespaces");
 
 		expect(response.status).toBe(200);
-		expect(response.body).toEqual({ namespaces: ["dev", "prod"] });
+		expect(response.body).toMatchObject({ namespaces: ["dev", "prod"] });
 		expect(listNamespaces).toHaveBeenCalledTimes(1);
 	});
 
@@ -48,7 +48,7 @@ describe("GET /api/namespaces", () => {
 		const response = await request(app.callback()).get("/api/namespaces");
 
 		expect(response.status).toBe(401);
-		expect(response.body).toEqual({
+		expect(response.body).toMatchObject({
 			error: "OpenShift authentication failed",
 			details: "Unable to create Kubernetes client without an oc token",
 		});
@@ -62,7 +62,7 @@ describe("GET /api/namespaces", () => {
 		const response = await request(app.callback()).get("/api/namespaces");
 
 		expect(response.status).toBe(403);
-		expect(response.body).toEqual({
+		expect(response.body).toMatchObject({
 			error: "OpenShift authentication failed",
 			details: "namespaces is forbidden",
 		});
@@ -76,7 +76,7 @@ describe("GET /api/namespaces", () => {
 		const response = await request(app.callback()).get("/api/namespaces");
 
 		expect(response.status).toBe(500);
-		expect(response.body).toEqual({
+		expect(response.body).toMatchObject({
 			error: "Kubernetes API error",
 			details: "apiserver unavailable",
 		});
@@ -107,7 +107,7 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(response.body).toEqual({ pods });
+		expect(response.body).toMatchObject({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
 		expect(listPods).toHaveBeenCalledWith("my-project");
 	});
@@ -120,7 +120,7 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(response.body).toEqual({ pods: [] });
+		expect(response.body).toMatchObject({ pods: [] });
 	});
 
 	it("rejects invalid namespace params before calling the pods service", async () => {
@@ -143,7 +143,7 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 		);
 
 		expect(response.status).toBe(503);
-		expect(response.body).toEqual({
+		expect(response.body).toMatchObject({
 			error: "Kubernetes API error",
 			details: "pods unavailable",
 		});

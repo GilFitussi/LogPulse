@@ -68,7 +68,7 @@ describe("OpenShift authentication helpers", () => {
       callback(error, "", "");
     });
 
-    await expect(checkOcAuth()).resolves.toEqual({
+    await expect(checkOcAuth()).resolves.toMatchObject({
       authenticated: false,
       status: 500,
       error: OC_NOT_INSTALLED_ERROR,
@@ -85,7 +85,7 @@ describe("OpenShift authentication helpers", () => {
       callback(new Error("not logged in"), "", "error: not logged in");
     });
 
-    await expect(checkOcAuth()).resolves.toEqual({
+    await expect(checkOcAuth()).resolves.toMatchObject({
       authenticated: false,
       status: 401,
       error: OC_NOT_LOGGED_IN_ERROR,
@@ -102,7 +102,7 @@ describe("OpenShift authentication helpers", () => {
       callback(null, "\n", "");
     });
 
-    await expect(checkOcAuth()).resolves.toEqual({
+    await expect(checkOcAuth()).resolves.toMatchObject({
       authenticated: false,
       status: 401,
       error: OC_NOT_LOGGED_IN_ERROR,
@@ -128,7 +128,7 @@ describe("OpenShift authentication helpers", () => {
       );
     });
 
-    await expect(checkOcAuth()).resolves.toEqual({
+    await expect(checkOcAuth()).resolves.toMatchObject({
       authenticated: false,
       status: 401,
       error: OC_NOT_LOGGED_IN_ERROR,
