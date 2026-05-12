@@ -532,9 +532,13 @@ function App() {
 	);
 	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
 	const [newLogCountWhilePaused, setNewLogCountWhilePaused] = useState(0);
+	const [logStreamUpdateCount, setLogStreamUpdateCount] = useState(0);
+	const [pausedVisibleLogLines, setPausedVisibleLogLines] = useState(null);
 	const logListRef = useRef(null);
 	const isLogAutoScrollPausedRef = useRef(false);
-	const previousFilteredLogLineCountRef = useRef(0);
+	const isManualLogFollowingPausedRef = useRef(false);
+	const logSearchRef = useRef("");
+	const activeSeverityFiltersRef = useRef([]);
 
 	useEffect(() => {
 		const checkBackendHealth = async () => {
@@ -688,6 +692,38 @@ function App() {
 		return () => controller.abort();
 	}, [selectedNamespace]);
 
+	const appendReceivedLogLines = useCallback((receivedLogLines) => {
+		const formattedLogLines = (
+			Array.isArray(receivedLogLines) ? receivedLogLines : [receivedLogLines]
+		).map(formatLogEvent);
+
+		if (formattedLogLines.length === 0) {
+			return;
+		}
+
+		setRawLogLines((currentLines) =>
+			appendLogLines(currentLines, formattedLogLines),
+		);
+
+		if (isLogAutoScrollPausedRef.current) {
+			const newVisibleLogLineCount = getFilteredLogLines(
+				formattedLogLines,
+				logSearchRef.current,
+				activeSeverityFiltersRef.current,
+			).length;
+
+			if (newVisibleLogLineCount > 0) {
+				setNewLogCountWhilePaused(
+					(currentCount) => currentCount + newVisibleLogLineCount,
+				);
+			}
+		} else {
+			setNewLogCountWhilePaused(0);
+		}
+
+		setLogStreamUpdateCount((currentCount) => currentCount + 1);
+	}, []);
+
 	useEffect(() => {
 		if (!selectedNamespace || !selectedPod) {
 			return undefined;
@@ -703,15 +739,10 @@ function App() {
 		eventSource.addEventListener("log", (event) => {
 			try {
 				const logBatch = JSON.parse(event.data);
-				const logLines = Array.isArray(logBatch) ? logBatch : [logBatch];
 
-				setRawLogLines((currentLines) =>
-					appendLogLines(currentLines, logLines.map(formatLogEvent)),
-				);
+				appendReceivedLogLines(logBatch);
 			} catch {
-				setRawLogLines((currentLines) =>
-					appendLogLines(currentLines, event.data),
-				);
+				appendReceivedLogLines(event.data);
 			}
 		});
 
@@ -736,27 +767,28 @@ function App() {
 		return () => {
 			eventSource.close();
 		};
-	}, [selectedNamespace, selectedPod]);
+	}, [appendReceivedLogLines, selectedNamespace, selectedPod]);
 
 	const filteredLogLines = getFilteredLogLines(
 		rawLogLines,
 		logSearch,
 		activeSeverityFilters,
 	);
+	const visibleLogLines = pausedVisibleLogLines ?? filteredLogLines;
 	const logDensityData = useMemo(
-		() => buildLogDensityBuckets(filteredLogLines),
-		[filteredLogLines],
+		() => buildLogDensityBuckets(visibleLogLines),
+		[visibleLogLines],
 	);
 	const logLinesStore = useMemo(() => {
 		const store = {};
 
 		Object.defineProperty(store, "lines", {
-			value: filteredLogLines,
+			value: visibleLogLines,
 			enumerable: false,
 		});
 
 		return store;
-	}, [filteredLogLines]);
+	}, [visibleLogLines]);
 	const hasActiveLogSearch = logSearch.trim().length > 0;
 	const hasActiveSeverityFilters = activeSeverityFilters.length > 0;
 	const hasActiveLogFilters = hasActiveLogSearch || hasActiveSeverityFilters;
@@ -768,7 +800,7 @@ function App() {
 		: "";
 	const exportLogLines = includeFilteredOutLogsForExport
 		? rawLogLines
-		: filteredLogLines;
+		: visibleLogLines;
 
 	const scrollToLatestVisibleLog = useCallback(() => {
 		if (filteredLogLines.length === 0) {
@@ -801,28 +833,20 @@ function App() {
 	}, [isLogAutoScrollPaused]);
 
 	useEffect(() => {
-		const previousFilteredLogLineCount =
-			previousFilteredLogLineCountRef.current;
-		const newVisibleLogLineCount = Math.max(
-			0,
-			filteredLogLines.length - previousFilteredLogLineCount,
-		);
+		logSearchRef.current = logSearch;
+	}, [logSearch]);
 
-		previousFilteredLogLineCountRef.current = filteredLogLines.length;
+	useEffect(() => {
+		activeSeverityFiltersRef.current = activeSeverityFilters;
+	}, [activeSeverityFilters]);
 
+	useEffect(() => {
 		if (isLogAutoScrollPausedRef.current) {
-			if (newVisibleLogLineCount > 0) {
-				setNewLogCountWhilePaused(
-					(currentCount) => currentCount + newVisibleLogLineCount,
-				);
-			}
-
 			return;
 		}
 
 		scrollToLatestVisibleLog();
-		setNewLogCountWhilePaused(0);
-	}, [filteredLogLines.length, scrollToLatestVisibleLog]);
+	}, [filteredLogLines.length, logStreamUpdateCount, scrollToLatestVisibleLog]);
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
@@ -852,6 +876,8 @@ function App() {
 			setSelectedLogLine(null);
 			setIncludeFilteredOutLogsForExport(false);
 			setLogTransferStatus("");
+			isManualLogFollowingPausedRef.current = false;
+			setPausedVisibleLogLines(null);
 			setIsLogAutoScrollPaused(false);
 			setNewLogCountWhilePaused(0);
 			setLogStatus("Select a project and pod to stream logs");
@@ -885,6 +911,8 @@ function App() {
 		setSelectedLogLine(null);
 		setIncludeFilteredOutLogsForExport(false);
 		setLogTransferStatus("");
+		isManualLogFollowingPausedRef.current = false;
+		setPausedVisibleLogLines(null);
 		setIsLogAutoScrollPaused(false);
 		setNewLogCountWhilePaused(0);
 		setLogStatus(
@@ -905,32 +933,45 @@ function App() {
 			logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight;
 		const isAtBottom = distanceFromBottom <= LOG_SCROLL_BOTTOM_THRESHOLD;
 
+		if (isManualLogFollowingPausedRef.current) {
+			return;
+		}
+
+		if (!isAtBottom && !isLogAutoScrollPaused) {
+			setPausedVisibleLogLines(filteredLogLines);
+		}
+
 		setIsLogAutoScrollPaused(!isAtBottom);
 
 		if (isAtBottom) {
+			setPausedVisibleLogLines(null);
 			setNewLogCountWhilePaused(0);
 		}
 	};
 
 	const pauseLogFollowing = () => {
+		isManualLogFollowingPausedRef.current = true;
 		isLogAutoScrollPausedRef.current = true;
+		setPausedVisibleLogLines(filteredLogLines);
 		setIsLogAutoScrollPaused(true);
 	};
 
 	const jumpToLatestLog = () => {
+		setPausedVisibleLogLines(null);
 		scrollToLatestVisibleLog();
+		isManualLogFollowingPausedRef.current = false;
 		isLogAutoScrollPausedRef.current = false;
 		setIsLogAutoScrollPaused(false);
 		setNewLogCountWhilePaused(0);
 	};
 
 	const jumpToDensityBucket = (bucket) => {
-		if (bucket.count === 0 || filteredLogLines.length === 0) {
+		if (bucket.count === 0 || visibleLogLines.length === 0) {
 			return;
 		}
 
 		const targetIndex = Math.min(
-			filteredLogLines.length - 1,
+			visibleLogLines.length - 1,
 			Math.max(0, bucket.startIndex),
 		);
 
@@ -940,8 +981,10 @@ function App() {
 		});
 		setSelectedLogLine({
 			index: targetIndex,
-			line: filteredLogLines[targetIndex],
+			line: visibleLogLines[targetIndex],
 		});
+		setPausedVisibleLogLines(visibleLogLines);
+		isManualLogFollowingPausedRef.current = true;
 		isLogAutoScrollPausedRef.current = true;
 		setIsLogAutoScrollPaused(true);
 	};
@@ -978,14 +1021,14 @@ function App() {
 	};
 
 	const copyVisibleLogLines = async () => {
-		if (filteredLogLines.length === 0) {
+		if (visibleLogLines.length === 0) {
 			return;
 		}
 
 		try {
-			await writeTextToClipboard(filteredLogLines.join("\n"));
+			await writeTextToClipboard(visibleLogLines.join("\n"));
 			setLogTransferStatus(
-				`Copied ${filteredLogLines.length} visible filtered log lines.`,
+				`Copied ${visibleLogLines.length} visible filtered log lines.`,
 			);
 		} catch {
 			setLogTransferStatus("Unable to copy visible filtered logs.");
@@ -1057,7 +1100,7 @@ function App() {
 		: "Select a target to stream logs";
 	const hasNewLogsWhilePaused = newLogCountWhilePaused > 0;
 	const canJumpToLatestLog =
-		isLogAutoScrollPaused && filteredLogLines.length > 0;
+		isLogAutoScrollPaused && visibleLogLines.length > 0;
 
 	return (
 		<AppShell>
@@ -1182,7 +1225,7 @@ function App() {
 							<ToolbarButton
 								type="button"
 								onClick={pauseLogFollowing}
-								disabled={filteredLogLines.length === 0}
+								disabled={visibleLogLines.length === 0}
 								aria-label="Pause following latest logs"
 								title="Pause following latest logs"
 							>
@@ -1225,7 +1268,7 @@ function App() {
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									onSelect={copyVisibleLogLines}
-									disabled={filteredLogLines.length === 0}
+									disabled={visibleLogLines.length === 0}
 								>
 									<Copy className="size-3.5" aria-hidden="true" />
 									Copy visible
@@ -1257,13 +1300,13 @@ function App() {
 							onBucketClick={jumpToDensityBucket}
 						/>
 						<div>
-							{filteredLogLines.length > 0 ? (
+							{visibleLogLines.length > 0 ? (
 								<div className="relative mt-2">
 									<List
 										listRef={logListRef}
 										onScroll={handleLogViewerScroll}
 										rowComponent={LogLineRow}
-										rowCount={filteredLogLines.length}
+										rowCount={visibleLogLines.length}
 										rowHeight={LOG_ROW_HEIGHT}
 										rowProps={{
 											logLinesStore,
@@ -1296,7 +1339,7 @@ function App() {
 							)}
 							<div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
 								<span>
-									{filteredLogLines.length} visible / {rawLogLines.length}{" "}
+									{visibleLogLines.length} visible / {rawLogLines.length}{" "}
 									buffered
 								</span>
 								{logTransferStatus && (
