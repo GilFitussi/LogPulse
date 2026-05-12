@@ -1,14 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Download, FileJson, MoreHorizontal, X } from "lucide-react";
 import { List } from "react-window";
 
 import {
 	AppShell,
+	ContentLayout,
 	PageContainer,
 	Panel,
-	SectionHeader,
-	ToolbarContainer,
 } from "@/components/layout/app-shell";
-import { ThemeToggle } from "@/components/theme-toggle";
+import {
+	SecondaryFilterToolbar,
+	ToolbarButton,
+	ToolbarSearchContainer,
+	TopToolbar,
+} from "@/components/layout/top-toolbar";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import {
 	LOG_SEVERITIES,
@@ -35,11 +46,11 @@ function formatLogEvent(data) {
 	return String(data ?? "");
 }
 
-const LOG_SCROLL_BOTTOM_THRESHOLD = 8;
-const LOG_LIST_HEIGHT = 288;
-const LOG_ROW_HEIGHT = 20;
+const LOG_SCROLL_BOTTOM_THRESHOLD = 48;
+const LOG_LIST_HEIGHT = 560;
+const LOG_ROW_HEIGHT = 22;
 const LOG_DENSITY_BUCKET_COUNT = 36;
-const LOG_DENSITY_MAX_BAR_HEIGHT = 56;
+const LOG_DENSITY_MAX_BAR_HEIGHT = 16;
 
 const severityFilterOptions = [
 	{
@@ -82,38 +93,6 @@ const AUTH_STATUS = {
 	NOT_LOGGED_IN: "not-logged-in",
 	OC_NOT_INSTALLED: "oc-not-installed",
 	ERROR: "error",
-};
-
-const authStatusContent = {
-	[AUTH_STATUS.CHECKING]: {
-		label: "Checking OpenShift authentication...",
-		message: "Verifying whether the backend can access your local oc session.",
-		className: "border-border bg-muted text-muted-foreground",
-	},
-	[AUTH_STATUS.CONNECTED]: {
-		label: "Connected",
-		message: "Backend can access your local OpenShift session.",
-		className:
-			"border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-	},
-	[AUTH_STATUS.NOT_LOGGED_IN]: {
-		label: "Not logged in",
-		message: "Please run oc login from your terminal.",
-		className:
-			"border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-	},
-	[AUTH_STATUS.OC_NOT_INSTALLED]: {
-		label: "oc not installed",
-		message:
-			"Install the OpenShift CLI and make sure oc is available in your PATH.",
-		className: "border-destructive/30 bg-destructive/10 text-destructive",
-	},
-	[AUTH_STATUS.ERROR]: {
-		label: "Unable to check authentication",
-		message:
-			"The backend could not verify your OpenShift authentication status.",
-		className: "border-destructive/30 bg-destructive/10 text-destructive",
-	},
 };
 
 function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
@@ -405,18 +384,35 @@ function renderHighlightedLogLine(line, searchText) {
 	return highlightedParts;
 }
 
+function splitLogLineForDisplay(line) {
+	const normalizedLine = String(line ?? "");
+	const timestampMatch = normalizedLine.match(
+		/^\s*(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s*(.*)$/,
+	);
+
+	if (!timestampMatch) {
+		return { message: normalizedLine, timestamp: "" };
+	}
+
+	return {
+		message: timestampMatch[2] || "",
+		timestamp: timestampMatch[1],
+	};
+}
+
 function LogLineRow({
 	ariaAttributes,
-	filteredLogLines,
 	index,
+	logLinesStore,
 	logSearch,
 	onSelectLogLine,
 	selectedLogLine,
 	style,
 }) {
-	const line = filteredLogLines[index];
+	const line = logLinesStore.lines[index];
 	const severity = detectLogSeverity(line);
 	const severityOption = severityFilterOptionsBySeverity[severity];
+	const { message, timestamp } = splitLogLineForDisplay(line);
 	const isSelected =
 		selectedLogLine?.line === line && selectedLogLine?.index === index;
 
@@ -426,49 +422,41 @@ function LogLineRow({
 			type="button"
 			style={style}
 			onClick={() => onSelectLogLine({ index, line })}
-			className={`overflow-hidden whitespace-pre-wrap pr-4 text-left font-mono text-xs leading-5 text-log-foreground ${
-				isSelected ? "bg-slate-800/80" : "hover:bg-slate-900/80"
+			className={`grid grid-cols-[9.5rem_3.75rem_minmax(0,1fr)] items-start gap-2 overflow-hidden px-2 py-0.5 text-left font-mono text-xs leading-5 text-log-foreground ${
+				isSelected ? "bg-slate-800/80" : "hover:bg-slate-900/70"
 			}`}
 		>
+			<span className="truncate text-[11px] text-log-foreground/50">
+				{timestamp || "—"}
+			</span>
 			<span
-				className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
+				className={`justify-self-start rounded px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
 			>
 				{severityOption.label}
 			</span>
-			{renderHighlightedLogLine(line, logSearch)}
+			<span className="min-w-0 whitespace-pre-wrap break-words text-log-foreground">
+				{renderHighlightedLogLine(message || line, logSearch)}
+			</span>
 		</button>
 	);
 }
 
-function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
+function LogDensityMap({ densityData, onBucketClick }) {
 	const maxBucketCount = Math.max(
 		1,
 		...densityData.buckets.map((bucket) => bucket.count),
 	);
 
 	return (
-		<div className="mt-4 rounded-md border border-border bg-panel p-4">
-			<div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-				<div>
-					<h3 className="text-sm font-semibold text-foreground">
-						Log density map
-					</h3>
-					<p className="mt-1 text-xs text-muted-foreground">
-						{logLineCount} visible log lines bucketed by {densityData.mode}.
-					</p>
-				</div>
-				<p className="text-xs text-muted-foreground">
-					Click a bar to jump near it.
-				</p>
-			</div>
+		<div className="mt-1 flex justify-end">
 			{densityData.buckets.length > 0 ? (
 				<div
-					className="mt-4 flex h-20 items-end gap-1 rounded-md border border-border bg-card px-2 py-2"
+					className="flex h-4 w-full items-end gap-0.5 overflow-hidden rounded bg-muted/20 px-1 py-0.5 opacity-80"
 					aria-label="Log volume density timeline"
 				>
 					{densityData.buckets.map((bucket) => {
 						const barHeight = Math.max(
-							4,
+							2,
 							Math.round(
 								(bucket.count / maxBucketCount) * LOG_DENSITY_MAX_BAR_HEIGHT,
 							),
@@ -489,7 +477,7 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 								title={label}
 							>
 								<span
-									className={`block w-full rounded-sm ${
+									className={`block w-full rounded-[1px] ${
 										bucket.count === maxBucketCount
 											? "bg-rose-500"
 											: bucket.count > 0
@@ -503,7 +491,7 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 					})}
 				</div>
 			) : (
-				<p className="mt-3 rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+				<p className="text-xs text-muted-foreground">
 					Log volume appears here after logs arrive.
 				</p>
 			)}
@@ -512,10 +500,8 @@ function LogDensityMap({ densityData, logLineCount, onBucketClick }) {
 }
 
 function App() {
-	const [healthStatus, setHealthStatus] = useState(
-		"Checking backend health...",
-	);
-	const [authStatus, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
+	const [, setHealthStatus] = useState("Checking backend health...");
+	const [, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
 	const [namespaces, setNamespaces] = useState([]);
 	const [namespacesStatus, setNamespacesStatus] = useState(
 		"Loading projects...",
@@ -744,7 +730,6 @@ function App() {
 		};
 	}, [selectedNamespace, selectedPod]);
 
-	const authContent = authStatusContent[authStatus];
 	const filteredLogLines = getFilteredLogLines(
 		rawLogLines,
 		logSearch,
@@ -754,6 +739,16 @@ function App() {
 		() => buildLogDensityBuckets(filteredLogLines),
 		[filteredLogLines],
 	);
+	const logLinesStore = useMemo(() => {
+		const store = {};
+
+		Object.defineProperty(store, "lines", {
+			value: filteredLogLines,
+			enumerable: false,
+		});
+
+		return store;
+	}, [filteredLogLines]);
 	const hasActiveLogSearch = logSearch.trim().length > 0;
 	const hasActiveSeverityFilters = activeSeverityFilters.length > 0;
 	const hasActiveLogFilters = hasActiveLogSearch || hasActiveSeverityFilters;
@@ -766,6 +761,32 @@ function App() {
 	const exportLogLines = includeFilteredOutLogsForExport
 		? rawLogLines
 		: filteredLogLines;
+
+	const scrollToLatestVisibleLog = useCallback(() => {
+		if (filteredLogLines.length === 0) {
+			return;
+		}
+
+		const latestIndex = filteredLogLines.length - 1;
+
+		logListRef.current?.scrollToRow({
+			align: "end",
+			index: latestIndex,
+		});
+
+		requestAnimationFrame(() => {
+			logListRef.current?.scrollToRow({
+				align: "end",
+				index: latestIndex,
+			});
+
+			const logViewer = logListRef.current?.element;
+
+			if (logViewer) {
+				logViewer.scrollTop = logViewer.scrollHeight;
+			}
+		});
+	}, [filteredLogLines.length]);
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -786,15 +807,10 @@ function App() {
 			return;
 		}
 
-		if (filteredLogLines.length > 0) {
-			logListRef.current?.scrollToRow({
-				align: "end",
-				index: filteredLogLines.length - 1,
-			});
-		}
+		scrollToLatestVisibleLog();
 
 		setHasNewLogsWhilePaused(false);
-	}, [rawLogLines, filteredLogLines.length]);
+	}, [rawLogLines, filteredLogLines.length, scrollToLatestVisibleLog]);
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
@@ -805,11 +821,17 @@ function App() {
 
 	const handleNamespaceChange = (event) => {
 		const value = event.target.value;
-		const nextNamespace = namespaces.includes(value) ? value : "";
+		const nextNamespace = namespaces.includes(value) ? value : null;
 
 		setNamespaceSearch(value);
 
-		if (nextNamespace !== selectedNamespace) {
+		if (nextNamespace === null && value !== "") {
+			return;
+		}
+
+		const resolvedNamespace = nextNamespace || "";
+
+		if (resolvedNamespace !== selectedNamespace) {
 			setPods([]);
 			setPodSearch("");
 			setSelectedPod("");
@@ -822,19 +844,30 @@ function App() {
 			setHasNewLogsWhilePaused(false);
 			setLogStatus("Select a project and pod to stream logs");
 			setPodsStatus(
-				nextNamespace ? "Loading pods..." : "Select a project to load pods",
+				resolvedNamespace ? "Loading pods..." : "Select a project to load pods",
 			);
 		}
 
-		setSelectedNamespace(nextNamespace);
+		setSelectedNamespace(resolvedNamespace);
 	};
 
 	const handlePodChange = (event) => {
 		const value = event.target.value;
-		const nextPod = podNames.includes(value) ? value : "";
+		const nextPod = podNames.includes(value) ? value : null;
 
 		setPodSearch(value);
-		setSelectedPod(nextPod);
+
+		if (nextPod === null && value !== "") {
+			return;
+		}
+
+		const resolvedPod = nextPod || "";
+
+		if (resolvedPod === selectedPod) {
+			return;
+		}
+
+		setSelectedPod(resolvedPod);
 		setRawLogLines([]);
 		setActiveSeverityFilters([]);
 		setSelectedLogLine(null);
@@ -843,7 +876,7 @@ function App() {
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
 		setLogStatus(
-			nextPod
+			resolvedPod
 				? "Connecting to log stream..."
 				: "Select a project and pod to stream logs",
 		);
@@ -868,13 +901,8 @@ function App() {
 	};
 
 	const jumpToLatestLog = () => {
-		if (filteredLogLines.length > 0) {
-			logListRef.current?.scrollToRow({
-				align: "end",
-				index: filteredLogLines.length - 1,
-			});
-		}
-
+		scrollToLatestVisibleLog();
+		isLogAutoScrollPausedRef.current = false;
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
 	};
@@ -1002,77 +1030,46 @@ function App() {
 		setSelectedLogLine(null);
 	};
 
+	const toolbarInputClassName =
+		"h-6 w-full rounded-md border border-input/70 bg-background/70 px-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground";
+	const toolbarSearchInputClassName = `${toolbarInputClassName} pl-8`;
+	const isLogStreamConnected = logStatus === "Connected to log stream";
+	const connectionLabel = isLogStreamConnected
+		? "Connected to log stream"
+		: "Select a target to stream logs";
+	const canJumpToLatestLog =
+		(isLogAutoScrollPaused || hasNewLogsWhilePaused) &&
+		filteredLogLines.length > 0;
+
 	return (
 		<AppShell>
-			<PageContainer>
-				<ToolbarContainer as="header">
-					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-						<div>
-							<p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-								OpenShift log explorer
-							</p>
-							<h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
-								OS-LogPulse
-							</h1>
-						</div>
-						<ThemeToggle />
-					</div>
-				</ToolbarContainer>
-
-				<section className="grid gap-4 md:grid-cols-2">
-					<Panel>
-						<SectionHeader title="Backend status" />
-						<p className="mt-2 text-sm text-foreground/80">{healthStatus}</p>
-					</Panel>
-
-					<Panel>
-						<SectionHeader title="OpenShift authentication" />
-						<div
-							className={`mt-3 rounded-md border px-4 py-3 ${authContent.className}`}
-						>
-							<p className="text-sm font-medium">{authContent.label}</p>
-							<p className="mt-1 text-sm">{authContent.message}</p>
-						</div>
-					</Panel>
-				</section>
-
-				<section className="grid gap-4 md:grid-cols-2">
-					<Panel>
-						<SectionHeader title="Project selector" />
-						<label
-							htmlFor="namespace-selector"
-							className="mt-4 block text-sm text-foreground/80"
-						>
-							OpenShift project / namespace
-						</label>
+			<TopToolbar
+				connectionLabel={connectionLabel}
+				isConnected={isLogStreamConnected}
+				newLogsAvailable={hasNewLogsWhilePaused}
+			/>
+			<SecondaryFilterToolbar
+				namespaceSearchControl={
+					<>
 						<input
 							id="namespace-selector"
 							list="namespace-options"
 							value={namespaceSearch}
 							onChange={handleNamespaceChange}
 							placeholder="Search projects..."
-							className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
+							aria-label="Search OpenShift projects or namespaces"
+							title={selectedNamespace || namespacesStatus}
+							className={toolbarInputClassName}
 						/>
 						<datalist id="namespace-options">
 							{filteredNamespaces.map((namespace) => (
 								<option key={namespace} value={namespace} />
 							))}
 						</datalist>
-						<p className="mt-2 text-sm text-muted-foreground">
-							{selectedNamespace
-								? `Selected project: ${selectedNamespace}`
-								: namespacesStatus}
-						</p>
-					</Panel>
-
-					<Panel>
-						<SectionHeader title="Pod selector" />
-						<label
-							htmlFor="pod-selector"
-							className="mt-4 block text-sm text-foreground/80"
-						>
-							Pod
-						</label>
+					</>
+				}
+				podSearchControl={
+					<>
 						<input
 							id="pod-selector"
 							list="pod-options"
@@ -1082,261 +1079,265 @@ function App() {
 								selectedNamespace ? "Search pods..." : "Select a project first"
 							}
 							disabled={!selectedNamespace}
-							className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+							aria-label="Search pods"
+							title={selectedPod || podsStatus}
+							className={toolbarInputClassName}
 						/>
 						<datalist id="pod-options">
 							{filteredPodNames.map((podName) => (
 								<option key={podName} value={podName} />
 							))}
 						</datalist>
-						<p className="mt-2 text-sm text-muted-foreground">
-							{selectedPod ? `Selected pod: ${selectedPod}` : podsStatus}
-						</p>
-					</Panel>
-				</section>
-
-				<Panel className="min-h-96">
-					<SectionHeader title="Live logs" description={logStatus} />
-					{hasNewLogsWhilePaused && (
-						<p className="mt-3 text-sm text-foreground/80">
-							New logs available while auto-scroll is paused.
-						</p>
-					)}
-					{(isLogAutoScrollPaused || hasNewLogsWhilePaused) && (
-						<button
+					</>
+				}
+				searchControl={
+					<div className="flex min-w-0 flex-1 gap-1.5">
+						<ToolbarSearchContainer>
+							<input
+								id="log-search"
+								value={logSearch}
+								onChange={(event) => setLogSearch(event.target.value)}
+								placeholder="Search logs..."
+								aria-label="Filter logs by text"
+								className={toolbarSearchInputClassName}
+							/>
+						</ToolbarSearchContainer>
+						<ToolbarButton
 							type="button"
-							onClick={jumpToLatestLog}
-							className="mt-3 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+							onClick={clearLogSearch}
+							disabled={!hasActiveLogSearch}
+							aria-label="Clear log search"
+							title="Clear search"
+							className="w-7 px-0"
 						>
-							Jump to latest
-						</button>
-					)}
-					<div className="mt-4 flex flex-col gap-3">
-						<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-							<div className="flex-1">
-								<label
-									htmlFor="log-search"
-									className="block text-sm text-foreground/80"
-								>
-									Search current log buffer
-								</label>
-								<input
-									id="log-search"
-									value={logSearch}
-									onChange={(event) => setLogSearch(event.target.value)}
-									placeholder="Filter logs by text..."
-									className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
-								/>
-							</div>
-							<button
-								type="button"
-								onClick={clearLogSearch}
-								disabled={!hasActiveLogSearch}
-								className="h-11 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							>
-								Clear search
-							</button>
-						</div>
-						<div>
-							<p className="text-sm text-foreground/80">Severity filters</p>
-							<div className="mt-2 flex flex-wrap gap-2">
-								{severityFilterOptions.map((option) => {
-									const isActive = activeSeverityFilters.includes(
-										option.severity,
-									);
-
-									return (
-										<button
-											key={option.severity}
-											type="button"
-											onClick={() => toggleSeverityFilter(option.severity)}
-											aria-pressed={isActive}
-											className={`rounded-md border px-3 py-2 text-sm font-medium ${
-												isActive
-													? option.buttonClassName
-													: "border-input bg-background text-foreground/80"
-											}`}
-										>
-											{option.label}
-										</button>
-									);
-								})}
-								<button
-									type="button"
-									onClick={clearSeverityFilters}
-									disabled={!hasActiveSeverityFilters}
-									className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-								>
-									Clear severity
-								</button>
-							</div>
-						</div>
+							<X className="size-3.5" aria-hidden="true" />
+						</ToolbarButton>
 					</div>
-					{hasActiveLogFilters && (
-						<p className="mt-2 text-sm text-muted-foreground">
-							Showing {filteredLogLines.length} of {rawLogLines.length} buffered
-							log lines.
-						</p>
-					)}
-					<div className="mt-4 rounded-md border border-border bg-panel p-4">
-						<div className="flex flex-wrap items-center gap-2">
-							<button
+				}
+				severityFilterControls={
+					<div className="flex flex-wrap gap-1">
+						{severityFilterOptions.map((option) => {
+							const isActive = activeSeverityFilters.includes(option.severity);
+
+							return (
+								<ToolbarButton
+									key={option.severity}
+									type="button"
+									onClick={() => toggleSeverityFilter(option.severity)}
+									aria-pressed={isActive}
+									className={`rounded-full border-transparent bg-muted/50 px-2 text-muted-foreground hover:bg-muted ${
+										isActive ? option.buttonClassName : ""
+									}`}
+								>
+									{option.label}
+								</ToolbarButton>
+							);
+						})}
+						<ToolbarButton
+							type="button"
+							onClick={clearSeverityFilters}
+							disabled={!hasActiveSeverityFilters}
+							aria-label="Clear severity filters"
+							title="Clear severity filters"
+							className="w-6 rounded-full border-transparent bg-muted/50 px-0"
+						>
+							<X className="size-3" aria-hidden="true" />
+						</ToolbarButton>
+					</div>
+				}
+				utilityActions={
+					<>
+						{canJumpToLatestLog && (
+							<ToolbarButton
 								type="button"
-								onClick={copySelectedLogLine}
-								disabled={!selectedLogLine}
-								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+								onClick={jumpToLatestLog}
+								aria-label="Resume following latest visible log"
+								title="Resume following latest visible log"
 							>
-								Copy selected line
-							</button>
-							<button
-								type="button"
-								onClick={copyVisibleLogLines}
-								disabled={filteredLogLines.length === 0}
-								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							>
-								Copy visible logs
-							</button>
-							<button
-								type="button"
-								onClick={exportLogLinesAsText}
-								disabled={exportLogLines.length === 0}
-								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							>
-								Export .txt
-							</button>
-							<button
-								type="button"
-								onClick={exportLogLinesAsJson}
-								disabled={exportLogLines.length === 0}
-								className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							>
-								Export .json
-							</button>
-						</div>
-						<label className="mt-3 flex items-center gap-2 text-sm text-foreground/80">
+								Follow
+							</ToolbarButton>
+						)}
+						<label
+							className="flex h-6 items-center gap-1.5 rounded-md bg-background/60 px-2 text-xs text-muted-foreground ring-1 ring-border/50"
+							title="Include filtered-out logs in exports"
+						>
 							<input
 								type="checkbox"
 								checked={includeFilteredOutLogsForExport}
 								onChange={(event) =>
 									setIncludeFilteredOutLogsForExport(event.target.checked)
 								}
-								className="h-4 w-4 rounded border-input"
+								className="h-3.5 w-3.5 rounded border-input accent-primary"
 							/>
-							Include filtered-out logs in exports
+							Export all
 						</label>
-						<p className="mt-2 text-xs text-muted-foreground">
-							Exports use {exportLogLines.length}{" "}
-							{includeFilteredOutLogsForExport
-								? "buffered"
-								: "visible filtered"}{" "}
-							log lines.
-						</p>
-						{logTransferStatus && (
-							<p className="mt-2 text-sm text-foreground/80" role="status">
-								{logTransferStatus}
-							</p>
-						)}
-					</div>
-					<LogDensityMap
-						densityData={logDensityData}
-						logLineCount={filteredLogLines.length}
-						onBucketClick={jumpToDensityBucket}
-					/>
-					<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-						{filteredLogLines.length > 0 ? (
-							<List
-								listRef={logListRef}
-								onScroll={handleLogViewerScroll}
-								rowComponent={LogLineRow}
-								rowCount={filteredLogLines.length}
-								rowHeight={LOG_ROW_HEIGHT}
-								rowProps={{
-									filteredLogLines,
-									logSearch,
-									onSelectLogLine: setSelectedLogLine,
-									selectedLogLine,
-								}}
-								overscanCount={8}
-								className="mt-4 overflow-auto rounded-md border border-border bg-log p-4 font-mono text-xs leading-5 text-log-foreground"
-								style={{ height: LOG_LIST_HEIGHT }}
-							/>
-						) : (
-							<div className="mt-4 h-72 overflow-auto rounded-md border border-border bg-log p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground">
-								{hasActiveLogFilters
-									? "No log lines match your filters."
-									: "No log lines received yet."}
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<ToolbarButton
+									type="button"
+									aria-label="Open log actions"
+									title="Log actions"
+									className="w-7 px-0"
+								>
+									<MoreHorizontal className="size-3.5" aria-hidden="true" />
+								</ToolbarButton>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent>
+								<DropdownMenuItem
+									onSelect={copySelectedLogLine}
+									disabled={!selectedLogLine}
+								>
+									<Copy className="size-3.5" aria-hidden="true" />
+									Copy selected
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={copyVisibleLogLines}
+									disabled={filteredLogLines.length === 0}
+								>
+									<Copy className="size-3.5" aria-hidden="true" />
+									Copy visible
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={exportLogLinesAsText}
+									disabled={exportLogLines.length === 0}
+								>
+									<Download className="size-3.5" aria-hidden="true" />
+									Export .txt
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={exportLogLinesAsJson}
+									disabled={exportLogLines.length === 0}
+								>
+									<FileJson className="size-3.5" aria-hidden="true" />
+									Export .json
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</>
+				}
+			/>
+			<PageContainer>
+				<ContentLayout>
+					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
+						<LogDensityMap
+							densityData={logDensityData}
+							onBucketClick={jumpToDensityBucket}
+						/>
+						<div>
+							{filteredLogLines.length > 0 ? (
+								<List
+									listRef={logListRef}
+									onScroll={handleLogViewerScroll}
+									rowComponent={LogLineRow}
+									rowCount={filteredLogLines.length}
+									rowHeight={LOG_ROW_HEIGHT}
+									rowProps={{
+										logLinesStore,
+										logSearch,
+										onSelectLogLine: setSelectedLogLine,
+										selectedLogLine,
+									}}
+									overscanCount={8}
+									className="mt-2 overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 text-log-foreground ring-1 ring-border/50"
+									style={{ height: LOG_LIST_HEIGHT }}
+								/>
+							) : (
+								<div className="mt-2 h-[35rem] overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground ring-1 ring-border/50">
+									{hasActiveLogFilters
+										? "No log lines match your filters."
+										: "No log lines received yet."}
+								</div>
+							)}
+							<div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+								<span>
+									{filteredLogLines.length} visible / {rawLogLines.length}{" "}
+									buffered
+								</span>
+								{logTransferStatus && (
+									<span className="text-foreground/80" role="status">
+										{logTransferStatus}
+									</span>
+								)}
 							</div>
-						)}
-						{selectedLogLine && selectedLogLineMetadata && (
-							<aside className="mt-4 rounded-md border border-border bg-panel p-4">
-								<div className="flex items-start justify-between gap-3">
-									<div>
-										<h3 className="text-sm font-semibold text-foreground">
-											Log line details
-										</h3>
-										<p className="mt-1 text-xs text-muted-foreground">
-											Inspect the selected log entry.
-										</p>
-									</div>
-									<button
-										type="button"
-										onClick={closeLogLineDetails}
-										className="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground"
-									>
-										Close
-									</button>
-								</div>
-								<div className="mt-4 space-y-3 text-sm">
-									<div>
-										<p className="font-medium text-foreground/80">
-											Structured JSON
-										</p>
-										{selectedLogLineFormattedJson ? (
-											<pre className="mt-2 max-h-72 overflow-auto whitespace-pre rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">
-												{selectedLogLineFormattedJson}
-											</pre>
-										) : (
-											<p className="mt-2 rounded-md border border-border bg-card p-3 text-xs text-muted-foreground">
-												No valid JSON object or array found in this log line.
-											</p>
-										)}
-									</div>
-									<div>
-										<p className="font-medium text-foreground/80">
-											Raw log text
-										</p>
-										<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-card p-3 font-mono text-xs text-foreground">
-											{selectedLogLine.line}
-										</pre>
-									</div>
-									<div>
-										<p className="font-medium text-foreground/80">
-											Parsed metadata
-										</p>
-										<dl className="mt-2 grid gap-2 rounded-md border border-border bg-card p-3 text-xs">
-											{[
-												["timestamp", selectedLogLineMetadata.timestamp],
-												["severity", selectedLogLineMetadata.severity],
-												["namespace", selectedLogLineMetadata.namespace],
-												["pod", selectedLogLineMetadata.pod],
-											].map(([label, value]) => (
-												<div key={label} className="grid grid-cols-3 gap-2">
-													<dt className="font-medium capitalize text-muted-foreground">
-														{label}
-													</dt>
-													<dd className="col-span-2 break-words text-foreground">
-														{value || "Not available"}
-													</dd>
-												</div>
-											))}
-										</dl>
-									</div>
-								</div>
-							</aside>
-						)}
-					</div>
-				</Panel>
+						</div>
+					</Panel>
+				</ContentLayout>
 			</PageContainer>
+			<aside
+				className={`fixed inset-y-0 right-0 z-40 w-[min(28rem,calc(100vw-1rem))] border-l border-border/70 bg-card/95 shadow-lg backdrop-blur-sm transition-transform duration-200 ease-out ${
+					selectedLogLine ? "translate-x-0" : "translate-x-full"
+				}`}
+				aria-hidden={!selectedLogLine}
+			>
+				{selectedLogLine && selectedLogLineMetadata && (
+					<div className="flex h-full flex-col">
+						<div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+							<div className="min-w-0">
+								<h2 className="text-sm font-semibold text-foreground">
+									Log details
+								</h2>
+								<p className="text-xs text-muted-foreground">
+									Selected row inspector
+								</p>
+							</div>
+							<ToolbarButton
+								type="button"
+								onClick={closeLogLineDetails}
+								aria-label="Close log details"
+								className="w-7 px-0"
+							>
+								<X className="size-3.5" aria-hidden="true" />
+							</ToolbarButton>
+						</div>
+						<div className="min-h-0 flex-1 space-y-3 overflow-auto p-3 text-sm">
+							<section>
+								<h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+									Metadata
+								</h3>
+								<dl className="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+									{[
+										["timestamp", selectedLogLineMetadata.timestamp],
+										["severity", selectedLogLineMetadata.severity],
+										["namespace", selectedLogLineMetadata.namespace],
+										["pod", selectedLogLineMetadata.pod],
+									].map(([label, value]) => (
+										<div key={label} className="contents">
+											<dt className="capitalize text-muted-foreground">
+												{label}
+											</dt>
+											<dd className="truncate text-foreground">
+												{value || "Not available"}
+											</dd>
+										</div>
+									))}
+								</dl>
+							</section>
+							<section>
+								<h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+									Structured JSON
+								</h3>
+								{selectedLogLineFormattedJson ? (
+									<pre className="mt-2 max-h-64 overflow-auto rounded-md bg-background/70 p-2 font-mono text-xs text-foreground ring-1 ring-border/60">
+										{selectedLogLineFormattedJson}
+									</pre>
+								) : (
+									<p className="mt-2 rounded-md bg-background/60 p-2 text-xs text-muted-foreground ring-1 ring-border/50">
+										No valid JSON object or array found.
+									</p>
+								)}
+							</section>
+							<section>
+								<h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+									Raw log
+								</h3>
+								<pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-xs text-foreground ring-1 ring-border/60">
+									{selectedLogLine.line}
+								</pre>
+							</section>
+						</div>
+					</div>
+				)}
+			</aside>
 		</AppShell>
 	);
 }
