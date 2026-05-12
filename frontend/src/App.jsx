@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { List } from "react-window";
 
 import {
 	LOG_SEVERITIES,
@@ -26,6 +27,8 @@ function formatLogEvent(data) {
 }
 
 const LOG_SCROLL_BOTTOM_THRESHOLD = 8;
+const LOG_LIST_HEIGHT = 288;
+const LOG_ROW_HEIGHT = 20;
 
 const severityFilterOptions = [
 	{
@@ -135,6 +138,27 @@ function renderHighlightedLogLine(line, searchText) {
 	return highlightedParts;
 }
 
+function LogLineRow({ ariaAttributes, filteredLogLines, index, logSearch, style }) {
+	const line = filteredLogLines[index];
+	const severity = detectLogSeverity(line);
+	const severityOption = severityFilterOptionsBySeverity[severity];
+
+	return (
+		<div
+			{...ariaAttributes}
+			style={style}
+			className="overflow-hidden whitespace-pre-wrap pr-4 text-xs leading-5 text-slate-100"
+		>
+			<span
+				className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
+			>
+				{severityOption.label}
+			</span>
+			{renderHighlightedLogLine(line, logSearch)}
+		</div>
+	);
+}
+
 function App() {
 	const [healthStatus, setHealthStatus] = useState(
 		"Checking backend health...",
@@ -158,7 +182,7 @@ function App() {
 	);
 	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
 	const [hasNewLogsWhilePaused, setHasNewLogsWhilePaused] = useState(false);
-	const logViewerRef = useRef(null);
+	const logListRef = useRef(null);
 	const isLogAutoScrollPausedRef = useRef(false);
 	const previousRawLogLinesRef = useRef(rawLogLines);
 
@@ -379,16 +403,11 @@ function App() {
 	}, [isLogAutoScrollPaused]);
 
 	useEffect(() => {
-		const logViewer = logViewerRef.current;
 		const hasNewLogLines =
 			rawLogLines !== previousRawLogLinesRef.current &&
 			filteredLogLines.length > 0;
 
 		previousRawLogLinesRef.current = rawLogLines;
-
-		if (!logViewer) {
-			return;
-		}
 
 		if (isLogAutoScrollPausedRef.current) {
 			if (hasNewLogLines) {
@@ -398,7 +417,13 @@ function App() {
 			return;
 		}
 
-		logViewer.scrollTop = logViewer.scrollHeight;
+		if (filteredLogLines.length > 0) {
+			logListRef.current?.scrollToRow({
+				align: "end",
+				index: filteredLogLines.length - 1,
+			});
+		}
+
 		setHasNewLogsWhilePaused(false);
 	}, [rawLogLines, filteredLogLines.length]);
 	const filteredNamespaces = namespaces.filter((namespace) =>
@@ -450,7 +475,7 @@ function App() {
 	};
 
 	const handleLogViewerScroll = () => {
-		const logViewer = logViewerRef.current;
+		const logViewer = logListRef.current?.element;
 
 		if (!logViewer) {
 			return;
@@ -468,10 +493,11 @@ function App() {
 	};
 
 	const jumpToLatestLog = () => {
-		const logViewer = logViewerRef.current;
-
-		if (logViewer) {
-			logViewer.scrollTop = logViewer.scrollHeight;
+		if (filteredLogLines.length > 0) {
+			logListRef.current?.scrollToRow({
+				align: "end",
+				index: filteredLogLines.length - 1,
+			});
 		}
 
 		setIsLogAutoScrollPaused(false);
@@ -669,32 +695,25 @@ function App() {
 							lines.
 						</p>
 					)}
-					<pre
-						ref={logViewerRef}
-						onScroll={handleLogViewerScroll}
-						className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100"
-					>
-						{filteredLogLines.length > 0
-							? filteredLogLines.map((line, index) => {
-									const severity = detectLogSeverity(line);
-									const severityOption = severityFilterOptionsBySeverity[severity];
-
-									return (
-										<span key={`${index}-${line}`}>
-											<span
-												className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
-											>
-												{severityOption.label}
-											</span>
-											{renderHighlightedLogLine(line, logSearch)}
-											{index < filteredLogLines.length - 1 ? "\n" : ""}
-										</span>
-									);
-								})
-							: hasActiveLogFilters
+					{filteredLogLines.length > 0 ? (
+						<List
+							listRef={logListRef}
+							onScroll={handleLogViewerScroll}
+							rowComponent={LogLineRow}
+							rowCount={filteredLogLines.length}
+							rowHeight={LOG_ROW_HEIGHT}
+							rowProps={{ filteredLogLines, logSearch }}
+							overscanCount={8}
+							className="mt-4 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100"
+							style={{ height: LOG_LIST_HEIGHT }}
+						/>
+					) : (
+						<div className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-100">
+							{hasActiveLogFilters
 								? "No log lines match your filters."
 								: "No log lines received yet."}
-					</pre>
+						</div>
+					)}
 				</section>
 			</div>
 		</main>
