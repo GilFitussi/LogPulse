@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendLogLines, getFilteredLogLines } from "./logBuffer.js";
+import { appendLogLines, getFilteredLogLines } from "../src/logBuffer.js";
 
 test("appendLogLines keeps lines under the configured limit", () => {
 	assert.deepEqual(appendLogLines(["one"], ["two", "three"], 3), [
