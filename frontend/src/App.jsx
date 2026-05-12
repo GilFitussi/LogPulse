@@ -113,6 +113,95 @@ function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
 	};
 }
 
+function parseStructuredJsonFromLogLine(line) {
+	const normalizedLine = String(line ?? "");
+	const matchingTokenByOpeningToken = {
+		"{": "}",
+		"[": "]",
+	};
+
+	for (
+		let startIndex = 0;
+		startIndex < normalizedLine.length;
+		startIndex += 1
+	) {
+		const openingToken = normalizedLine[startIndex];
+		const closingToken = matchingTokenByOpeningToken[openingToken];
+
+		if (!closingToken) {
+			continue;
+		}
+
+		const expectedClosingTokens = [closingToken];
+		let isInsideString = false;
+		let isEscaped = false;
+
+		for (
+			let currentIndex = startIndex + 1;
+			currentIndex < normalizedLine.length;
+			currentIndex += 1
+		) {
+			const currentToken = normalizedLine[currentIndex];
+
+			if (isInsideString) {
+				if (isEscaped) {
+					isEscaped = false;
+				} else if (currentToken === "\\") {
+					isEscaped = true;
+				} else if (currentToken === '"') {
+					isInsideString = false;
+				}
+
+				continue;
+			}
+
+			if (currentToken === '"') {
+				isInsideString = true;
+				continue;
+			}
+
+			const nestedClosingToken = matchingTokenByOpeningToken[currentToken];
+
+			if (nestedClosingToken) {
+				expectedClosingTokens.push(nestedClosingToken);
+				continue;
+			}
+
+			if (
+				currentToken !== expectedClosingTokens[expectedClosingTokens.length - 1]
+			) {
+				continue;
+			}
+
+			expectedClosingTokens.pop();
+
+			if (expectedClosingTokens.length === 0) {
+				const candidate = normalizedLine.slice(startIndex, currentIndex + 1);
+
+				try {
+					const parsedJson = JSON.parse(candidate);
+
+					if (parsedJson && typeof parsedJson === "object") {
+						return parsedJson;
+					}
+				} catch {
+					// Keep scanning for another JSON object or array in the log line.
+				}
+
+				break;
+			}
+		}
+	}
+
+	return null;
+}
+
+function formatStructuredJsonFromLogLine(line) {
+	const parsedJson = parseStructuredJsonFromLogLine(line);
+
+	return parsedJson ? JSON.stringify(parsedJson, null, 2) : "";
+}
+
 function renderHighlightedLogLine(line, searchText) {
 	const normalizedSearchText = searchText.trim().toLowerCase();
 
@@ -164,7 +253,8 @@ function LogLineRow({
 	const line = filteredLogLines[index];
 	const severity = detectLogSeverity(line);
 	const severityOption = severityFilterOptionsBySeverity[severity];
-	const isSelected = selectedLogLine?.line === line && selectedLogLine?.index === index;
+	const isSelected =
+		selectedLogLine?.line === line && selectedLogLine?.index === index;
 
 	return (
 		<button
@@ -428,6 +518,9 @@ function App() {
 	const selectedLogLineMetadata = selectedLogLine
 		? parseLogLineMetadata(selectedLogLine.line, selectedNamespace, selectedPod)
 		: null;
+	const selectedLogLineFormattedJson = selectedLogLine
+		? formatStructuredJsonFromLogLine(selectedLogLine.line)
+		: "";
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -544,7 +637,9 @@ function App() {
 	const toggleSeverityFilter = (severity) => {
 		setActiveSeverityFilters((currentFilters) =>
 			currentFilters.includes(severity)
-				? currentFilters.filter((currentSeverity) => currentSeverity !== severity)
+				? currentFilters.filter(
+						(currentSeverity) => currentSeverity !== severity,
+					)
 				: [...currentFilters, severity],
 		);
 	};
@@ -697,7 +792,9 @@ function App() {
 							<p className="text-sm text-slate-700">Severity filters</p>
 							<div className="mt-2 flex flex-wrap gap-2">
 								{severityFilterOptions.map((option) => {
-									const isActive = activeSeverityFilters.includes(option.severity);
+									const isActive = activeSeverityFilters.includes(
+										option.severity,
+									);
 
 									return (
 										<button
@@ -728,8 +825,8 @@ function App() {
 					</div>
 					{hasActiveLogFilters && (
 						<p className="mt-2 text-sm text-slate-600">
-							Showing {filteredLogLines.length} of {rawLogLines.length} buffered log
-							lines.
+							Showing {filteredLogLines.length} of {rawLogLines.length} buffered
+							log lines.
 						</p>
 					)}
 					<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -778,13 +875,29 @@ function App() {
 								</div>
 								<div className="mt-4 space-y-3 text-sm">
 									<div>
+										<p className="font-medium text-slate-700">
+											Structured JSON
+										</p>
+										{selectedLogLineFormattedJson ? (
+											<pre className="mt-2 max-h-72 overflow-auto whitespace-pre rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900">
+												{selectedLogLineFormattedJson}
+											</pre>
+										) : (
+											<p className="mt-2 rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-600">
+												No valid JSON object or array found in this log line.
+											</p>
+										)}
+									</div>
+									<div>
 										<p className="font-medium text-slate-700">Raw log text</p>
 										<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900">
 											{selectedLogLine.line}
 										</pre>
 									</div>
 									<div>
-										<p className="font-medium text-slate-700">Parsed metadata</p>
+										<p className="font-medium text-slate-700">
+											Parsed metadata
+										</p>
 										<dl className="mt-2 grid gap-2 rounded-md border border-slate-200 bg-white p-3 text-xs">
 											{[
 												["timestamp", selectedLogLineMetadata.timestamp],
