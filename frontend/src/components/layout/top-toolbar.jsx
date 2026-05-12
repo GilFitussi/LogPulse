@@ -1,4 +1,14 @@
-import { Activity, Boxes, Database, Search } from "lucide-react";
+import {
+	Activity,
+	AlertCircle,
+	Boxes,
+	CheckCircle2,
+	Database,
+	LoaderCircle,
+	Search,
+	ShieldAlert,
+	Terminal,
+} from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -53,7 +63,56 @@ export function ToolbarActions({ children, className }) {
 	);
 }
 
-export function TopToolbar({ connectionLabel, isConnected, newLogsAvailable }) {
+function getAuthBadgeConfig(authStatus, authStatusMessage) {
+	switch (authStatus) {
+		case "connected":
+			return {
+				Icon: CheckCircle2,
+				label: authStatusMessage || "OC logged in",
+				className:
+					"bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+			};
+		case "not-logged-in":
+			return {
+				Icon: ShieldAlert,
+				label: authStatusMessage || "OC login required",
+				className:
+					"bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+			};
+		case "oc-not-installed":
+			return {
+				Icon: Terminal,
+				label: authStatusMessage || "oc CLI missing",
+				className:
+					"bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
+			};
+		case "error":
+			return {
+				Icon: AlertCircle,
+				label: authStatusMessage || "OC status unavailable",
+				className:
+					"bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
+			};
+		default:
+			return {
+				Icon: LoaderCircle,
+				label: authStatusMessage || "Checking oc login...",
+				className: "bg-muted text-muted-foreground ring-border",
+				iconClassName: "animate-spin",
+			};
+	}
+}
+
+export function TopToolbar({
+	authStatus,
+	authStatusMessage,
+	connectionLabel,
+	isConnected,
+	newLogsAvailable,
+}) {
+	const authBadge = getAuthBadgeConfig(authStatus, authStatusMessage);
+	const AuthIcon = authBadge.Icon;
+
 	return (
 		<header className="sticky top-0 z-30 border-b border-toolbar-border/80 bg-toolbar/95 backdrop-blur supports-[backdrop-filter]:bg-toolbar/80">
 			<div className="mx-auto flex h-12 w-full max-w-[96rem] items-center justify-between gap-2 px-3 sm:px-4 lg:px-6">
@@ -67,6 +126,19 @@ export function TopToolbar({ connectionLabel, isConnected, newLogsAvailable }) {
 				</div>
 
 				<div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+					<span
+						className={cn(
+							"inline-flex items-center gap-1.5 rounded-full px-2 py-1 ring-1",
+							authBadge.className,
+						)}
+						title={authBadge.label}
+					>
+						<AuthIcon
+							className={cn("size-3.5", authBadge.iconClassName)}
+							aria-hidden="true"
+						/>
+						<span className="whitespace-nowrap">{authBadge.label}</span>
+					</span>
 					<span
 						className={cn(
 							"inline-flex items-center gap-1.5 rounded-full px-2 py-1 ring-1",

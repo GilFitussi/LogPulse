@@ -509,7 +509,10 @@ function LogDensityMap({ densityData, onBucketClick }) {
 
 function App() {
 	const [, setHealthStatus] = useState("Checking backend health...");
-	const [, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
+	const [authStatus, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
+	const [authStatusMessage, setAuthStatusMessage] = useState(
+		"Checking oc login...",
+	);
 	const [namespaces, setNamespaces] = useState([]);
 	const [namespacesStatus, setNamespacesStatus] = useState(
 		"Loading projects...",
@@ -570,11 +573,15 @@ function App() {
 
 				if (response.ok && data.authenticated === true) {
 					setAuthStatus(AUTH_STATUS.CONNECTED);
+					setAuthStatusMessage(
+						data.username ? `OC logged in as ${data.username}` : "OC logged in",
+					);
 					return;
 				}
 
 				if (response.status === 401) {
 					setAuthStatus(AUTH_STATUS.NOT_LOGGED_IN);
+					setAuthStatusMessage(data.action || data.error || "Run oc login");
 					return;
 				}
 
@@ -583,12 +590,15 @@ function App() {
 					data.error?.toLowerCase().includes("oc cli")
 				) {
 					setAuthStatus(AUTH_STATUS.OC_NOT_INSTALLED);
+					setAuthStatusMessage(data.action || data.error || "oc CLI missing");
 					return;
 				}
 
 				setAuthStatus(AUTH_STATUS.ERROR);
+				setAuthStatusMessage(data.error || "Unable to verify oc login");
 			} catch {
 				setAuthStatus(AUTH_STATUS.ERROR);
+				setAuthStatusMessage("Unable to reach backend for oc login check");
 			}
 		};
 
@@ -1105,6 +1115,8 @@ function App() {
 	return (
 		<AppShell>
 			<TopToolbar
+				authStatus={authStatus}
+				authStatusMessage={authStatusMessage}
 				connectionLabel={connectionLabel}
 				isConnected={isLogStreamConnected}
 				newLogsAvailable={hasNewLogsWhilePaused}
