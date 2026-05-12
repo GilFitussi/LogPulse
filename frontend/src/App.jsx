@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { appendLogLines, getFilteredLogLines } from "./logBuffer";
+import {
+	LOG_SEVERITIES,
+	appendLogLines,
+	detectLogSeverity,
+	getFilteredLogLines,
+} from "./logBuffer";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -21,6 +26,37 @@ function formatLogEvent(data) {
 }
 
 const LOG_SCROLL_BOTTOM_THRESHOLD = 8;
+
+const severityFilterOptions = [
+	{
+		severity: LOG_SEVERITIES.ERROR,
+		label: "Error",
+		markerClassName: "bg-red-500 text-white",
+		buttonClassName: "border-red-300 bg-red-50 text-red-800",
+	},
+	{
+		severity: LOG_SEVERITIES.WARN,
+		label: "Warn",
+		markerClassName: "bg-amber-400 text-amber-950",
+		buttonClassName: "border-amber-300 bg-amber-50 text-amber-800",
+	},
+	{
+		severity: LOG_SEVERITIES.INFO,
+		label: "Info",
+		markerClassName: "bg-sky-400 text-sky-950",
+		buttonClassName: "border-sky-300 bg-sky-50 text-sky-800",
+	},
+	{
+		severity: LOG_SEVERITIES.DEBUG,
+		label: "Debug",
+		markerClassName: "bg-violet-400 text-violet-950",
+		buttonClassName: "border-violet-300 bg-violet-50 text-violet-800",
+	},
+];
+
+const severityFilterOptionsBySeverity = Object.fromEntries(
+	severityFilterOptions.map((option) => [option.severity, option]),
+);
 
 const AUTH_STATUS = {
 	CHECKING: "checking",
@@ -116,6 +152,7 @@ function App() {
 	const [selectedPod, setSelectedPod] = useState("");
 	const [rawLogLines, setRawLogLines] = useState([]);
 	const [logSearch, setLogSearch] = useState("");
+	const [activeSeverityFilters, setActiveSeverityFilters] = useState([]);
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
@@ -328,8 +365,14 @@ function App() {
 	}, [selectedNamespace, selectedPod]);
 
 	const authContent = authStatusContent[authStatus];
-	const filteredLogLines = getFilteredLogLines(rawLogLines, logSearch);
+	const filteredLogLines = getFilteredLogLines(
+		rawLogLines,
+		logSearch,
+		activeSeverityFilters,
+	);
 	const hasActiveLogSearch = logSearch.trim().length > 0;
+	const hasActiveSeverityFilters = activeSeverityFilters.length > 0;
+	const hasActiveLogFilters = hasActiveLogSearch || hasActiveSeverityFilters;
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -377,6 +420,7 @@ function App() {
 			setPodSearch("");
 			setSelectedPod("");
 			setRawLogLines([]);
+			setActiveSeverityFilters([]);
 			setIsLogAutoScrollPaused(false);
 			setHasNewLogsWhilePaused(false);
 			setLogStatus("Select a project and pod to stream logs");
@@ -395,6 +439,7 @@ function App() {
 		setPodSearch(value);
 		setSelectedPod(nextPod);
 		setRawLogLines([]);
+		setActiveSeverityFilters([]);
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
 		setLogStatus(
@@ -435,6 +480,18 @@ function App() {
 
 	const clearLogSearch = () => {
 		setLogSearch("");
+	};
+
+	const toggleSeverityFilter = (severity) => {
+		setActiveSeverityFilters((currentFilters) =>
+			currentFilters.includes(severity)
+				? currentFilters.filter((currentSeverity) => currentSeverity !== severity)
+				: [...currentFilters, severity],
+		);
+	};
+
+	const clearSeverityFilters = () => {
+		setActiveSeverityFilters([]);
 	};
 
 	return (
@@ -547,32 +604,66 @@ function App() {
 							Jump to latest
 						</button>
 					)}
-					<div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
-						<div className="flex-1">
-							<label
-								htmlFor="log-search"
-								className="block text-sm text-slate-700"
+					<div className="mt-4 flex flex-col gap-3">
+						<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+							<div className="flex-1">
+								<label
+									htmlFor="log-search"
+									className="block text-sm text-slate-700"
+								>
+									Search current log buffer
+								</label>
+								<input
+									id="log-search"
+									value={logSearch}
+									onChange={(event) => setLogSearch(event.target.value)}
+									placeholder="Filter logs by text..."
+									className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+								/>
+							</div>
+							<button
+								type="button"
+								onClick={clearLogSearch}
+								disabled={!hasActiveLogSearch}
+								className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
 							>
-								Search current log buffer
-							</label>
-							<input
-								id="log-search"
-								value={logSearch}
-								onChange={(event) => setLogSearch(event.target.value)}
-								placeholder="Filter logs by text..."
-								className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
-							/>
+								Clear search
+							</button>
 						</div>
-						<button
-							type="button"
-							onClick={clearLogSearch}
-							disabled={!hasActiveLogSearch}
-							className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-						>
-							Clear search
-						</button>
+						<div>
+							<p className="text-sm text-slate-700">Severity filters</p>
+							<div className="mt-2 flex flex-wrap gap-2">
+								{severityFilterOptions.map((option) => {
+									const isActive = activeSeverityFilters.includes(option.severity);
+
+									return (
+										<button
+											key={option.severity}
+											type="button"
+											onClick={() => toggleSeverityFilter(option.severity)}
+											aria-pressed={isActive}
+											className={`rounded-md border px-3 py-2 text-sm font-medium ${
+												isActive
+													? option.buttonClassName
+													: "border-slate-300 bg-white text-slate-700"
+											}`}
+										>
+											{option.label}
+										</button>
+									);
+								})}
+								<button
+									type="button"
+									onClick={clearSeverityFilters}
+									disabled={!hasActiveSeverityFilters}
+									className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+								>
+									Clear severity
+								</button>
+							</div>
+						</div>
 					</div>
-					{hasActiveLogSearch && (
+					{hasActiveLogFilters && (
 						<p className="mt-2 text-sm text-slate-600">
 							Showing {filteredLogLines.length} of {rawLogLines.length} buffered log
 							lines.
@@ -584,14 +675,24 @@ function App() {
 						className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100"
 					>
 						{filteredLogLines.length > 0
-							? filteredLogLines.map((line, index) => (
-									<span key={`${index}-${line}`}>
-										{renderHighlightedLogLine(line, logSearch)}
-										{index < filteredLogLines.length - 1 ? "\n" : ""}
-									</span>
-								))
-							: hasActiveLogSearch
-								? "No log lines match your search."
+							? filteredLogLines.map((line, index) => {
+									const severity = detectLogSeverity(line);
+									const severityOption = severityFilterOptionsBySeverity[severity];
+
+									return (
+										<span key={`${index}-${line}`}>
+											<span
+												className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
+											>
+												{severityOption.label}
+											</span>
+											{renderHighlightedLogLine(line, logSearch)}
+											{index < filteredLogLines.length - 1 ? "\n" : ""}
+										</span>
+									);
+								})
+							: hasActiveLogFilters
+								? "No log lines match your filters."
 								: "No log lines received yet."}
 					</pre>
 				</section>
