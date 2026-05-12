@@ -202,6 +202,51 @@ function formatStructuredJsonFromLogLine(line) {
 	return parsedJson ? JSON.stringify(parsedJson, null, 2) : "";
 }
 
+function writeTextToClipboard(text) {
+	if (navigator.clipboard?.writeText) {
+		return navigator.clipboard.writeText(text);
+	}
+
+	const textArea = document.createElement("textarea");
+	textArea.value = text;
+	textArea.setAttribute("readonly", "");
+	textArea.style.position = "fixed";
+	textArea.style.left = "-9999px";
+	document.body.appendChild(textArea);
+	textArea.select();
+
+	try {
+		const copied = document.execCommand("copy");
+
+		return copied
+			? Promise.resolve()
+			: Promise.reject(new Error("Copy command failed"));
+	} finally {
+		document.body.removeChild(textArea);
+	}
+}
+
+function downloadLogFile(content, filename, mimeType) {
+	const blob = new Blob([content], { type: mimeType });
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+
+	link.href = url;
+	link.download = filename;
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+	URL.revokeObjectURL(url);
+}
+
+function createLogExportFilename(extension, selectedNamespace, selectedPod) {
+	const scope =
+		[selectedNamespace, selectedPod].filter(Boolean).join("-") || "logs";
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+	return `${scope}-${timestamp}.${extension}`;
+}
+
 function renderHighlightedLogLine(line, searchText) {
 	const normalizedSearchText = searchText.trim().toLowerCase();
 
@@ -295,6 +340,9 @@ function App() {
 	const [logSearch, setLogSearch] = useState("");
 	const [activeSeverityFilters, setActiveSeverityFilters] = useState([]);
 	const [selectedLogLine, setSelectedLogLine] = useState(null);
+	const [includeFilteredOutLogsForExport, setIncludeFilteredOutLogsForExport] =
+		useState(false);
+	const [logTransferStatus, setLogTransferStatus] = useState("");
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
@@ -521,6 +569,9 @@ function App() {
 	const selectedLogLineFormattedJson = selectedLogLine
 		? formatStructuredJsonFromLogLine(selectedLogLine.line)
 		: "";
+	const exportLogLines = includeFilteredOutLogsForExport
+		? rawLogLines
+		: filteredLogLines;
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -571,6 +622,8 @@ function App() {
 			setRawLogLines([]);
 			setActiveSeverityFilters([]);
 			setSelectedLogLine(null);
+			setIncludeFilteredOutLogsForExport(false);
+			setLogTransferStatus("");
 			setIsLogAutoScrollPaused(false);
 			setHasNewLogsWhilePaused(false);
 			setLogStatus("Select a project and pod to stream logs");
@@ -591,6 +644,8 @@ function App() {
 		setRawLogLines([]);
 		setActiveSeverityFilters([]);
 		setSelectedLogLine(null);
+		setIncludeFilteredOutLogsForExport(false);
+		setLogTransferStatus("");
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
 		setLogStatus(
@@ -646,6 +701,86 @@ function App() {
 
 	const clearSeverityFilters = () => {
 		setActiveSeverityFilters([]);
+	};
+
+	const copySelectedLogLine = async () => {
+		if (!selectedLogLine) {
+			return;
+		}
+
+		try {
+			await writeTextToClipboard(selectedLogLine.line);
+			setLogTransferStatus("Copied selected log line.");
+		} catch {
+			setLogTransferStatus("Unable to copy selected log line.");
+		}
+	};
+
+	const copyVisibleLogLines = async () => {
+		if (filteredLogLines.length === 0) {
+			return;
+		}
+
+		try {
+			await writeTextToClipboard(filteredLogLines.join("\n"));
+			setLogTransferStatus(
+				`Copied ${filteredLogLines.length} visible filtered log lines.`,
+			);
+		} catch {
+			setLogTransferStatus("Unable to copy visible filtered logs.");
+		}
+	};
+
+	const exportLogLinesAsText = () => {
+		if (exportLogLines.length === 0) {
+			return;
+		}
+
+		downloadLogFile(
+			exportLogLines.join("\n"),
+			createLogExportFilename("txt", selectedNamespace, selectedPod),
+			"text/plain;charset=utf-8",
+		);
+		setLogTransferStatus(
+			`Exported ${exportLogLines.length} ${
+				includeFilteredOutLogsForExport ? "buffered" : "visible filtered"
+			} log lines as text.`,
+		);
+	};
+
+	const exportLogLinesAsJson = () => {
+		if (exportLogLines.length === 0) {
+			return;
+		}
+
+		const exportPayload = {
+			exportedAt: new Date().toISOString(),
+			namespace: selectedNamespace || null,
+			pod: selectedPod || null,
+			filters: {
+				search: logSearch,
+				severities: activeSeverityFilters,
+			},
+			includeFilteredOutLogs: includeFilteredOutLogsForExport,
+			count: exportLogLines.length,
+			logs: exportLogLines.map((line, index) => ({
+				index,
+				line,
+				metadata: parseLogLineMetadata(line, selectedNamespace, selectedPod),
+				structuredJson: parseStructuredJsonFromLogLine(line),
+			})),
+		};
+
+		downloadLogFile(
+			JSON.stringify(exportPayload, null, 2),
+			createLogExportFilename("json", selectedNamespace, selectedPod),
+			"application/json;charset=utf-8",
+		);
+		setLogTransferStatus(
+			`Exported ${exportLogLines.length} ${
+				includeFilteredOutLogsForExport ? "buffered" : "visible filtered"
+			} log lines as JSON.`,
+		);
 	};
 
 	const closeLogLineDetails = () => {
@@ -829,6 +964,61 @@ function App() {
 							log lines.
 						</p>
 					)}
+					<div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+						<div className="flex flex-wrap items-center gap-2">
+							<button
+								type="button"
+								onClick={copySelectedLogLine}
+								disabled={!selectedLogLine}
+								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+							>
+								Copy selected line
+							</button>
+							<button
+								type="button"
+								onClick={copyVisibleLogLines}
+								disabled={filteredLogLines.length === 0}
+								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+							>
+								Copy visible logs
+							</button>
+							<button
+								type="button"
+								onClick={exportLogLinesAsText}
+								disabled={exportLogLines.length === 0}
+								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+							>
+								Export .txt
+							</button>
+							<button
+								type="button"
+								onClick={exportLogLinesAsJson}
+								disabled={exportLogLines.length === 0}
+								className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+							>
+								Export .json
+							</button>
+						</div>
+						<label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+							<input
+								type="checkbox"
+								checked={includeFilteredOutLogsForExport}
+								onChange={(event) =>
+									setIncludeFilteredOutLogsForExport(event.target.checked)
+								}
+								className="h-4 w-4 rounded border-slate-300"
+							/>
+							Include filtered-out logs in exports
+						</label>
+						<p className="mt-2 text-xs text-slate-600">
+							Exports use {exportLogLines.length} {includeFilteredOutLogsForExport ? "buffered" : "visible filtered"} log lines.
+						</p>
+						{logTransferStatus && (
+							<p className="mt-2 text-sm text-slate-700" role="status">
+								{logTransferStatus}
+							</p>
+						)}
+					</div>
 					<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
 						{filteredLogLines.length > 0 ? (
 							<List
