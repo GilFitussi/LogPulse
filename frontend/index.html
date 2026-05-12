@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const storedTheme =
+          localStorage.getItem("os-logexplorer-theme") || "system";
+        const resolvedTheme =
+          storedTheme === "system" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : storedTheme === "dark"
+              ? "dark"
+              : "light";
+
+        document.documentElement.classList.add(resolvedTheme);
+        document.documentElement.style.colorScheme = resolvedTheme;
+      })();
+    </script>
     <title>OS-LogPulse</title>
   </head>
   <body>
