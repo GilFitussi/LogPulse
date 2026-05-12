@@ -26,8 +26,26 @@ test("appendLogLines caps oversized batches to the newest lines", () => {
 	]);
 });
 
-test("getFilteredLogLines returns the raw view without mutating it", () => {
+test("getFilteredLogLines returns the raw view without mutating it when search is empty", () => {
 	const rawLogLines = ["one", "two"];
 
 	assert.equal(getFilteredLogLines(rawLogLines), rawLogLines);
+});
+
+test("getFilteredLogLines filters lines by search text without mutating raw logs", () => {
+	const rawLogLines = ["GET /health 200", "Error: failed to connect"];
+
+	assert.deepEqual(getFilteredLogLines(rawLogLines, "error"), [
+		"Error: failed to connect",
+	]);
+	assert.deepEqual(rawLogLines, ["GET /health 200", "Error: failed to connect"]);
+});
+
+test("getFilteredLogLines ignores leading, trailing, and case differences", () => {
+	const rawLogLines = ["Pod started", "pod stopped", "Container ready"];
+
+	assert.deepEqual(getFilteredLogLines(rawLogLines, " POD "), [
+		"Pod started",
+		"pod stopped",
+	]);
 });
