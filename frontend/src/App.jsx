@@ -99,6 +99,20 @@ const authStatusContent = {
 	},
 };
 
+function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
+	const normalizedLine = String(line ?? "");
+	const timestampMatch = normalizedLine.match(
+		/^\s*(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/,
+	);
+
+	return {
+		timestamp: timestampMatch?.[1] || "",
+		severity: detectLogSeverity(normalizedLine),
+		namespace: selectedNamespace || "",
+		pod: selectedPod || "",
+	};
+}
+
 function renderHighlightedLogLine(line, searchText) {
 	const normalizedSearchText = searchText.trim().toLowerCase();
 
@@ -138,16 +152,29 @@ function renderHighlightedLogLine(line, searchText) {
 	return highlightedParts;
 }
 
-function LogLineRow({ ariaAttributes, filteredLogLines, index, logSearch, style }) {
+function LogLineRow({
+	ariaAttributes,
+	filteredLogLines,
+	index,
+	logSearch,
+	onSelectLogLine,
+	selectedLogLine,
+	style,
+}) {
 	const line = filteredLogLines[index];
 	const severity = detectLogSeverity(line);
 	const severityOption = severityFilterOptionsBySeverity[severity];
+	const isSelected = selectedLogLine?.line === line && selectedLogLine?.index === index;
 
 	return (
-		<div
+		<button
 			{...ariaAttributes}
+			type="button"
 			style={style}
-			className="overflow-hidden whitespace-pre-wrap pr-4 text-xs leading-5 text-slate-100"
+			onClick={() => onSelectLogLine({ index, line })}
+			className={`overflow-hidden whitespace-pre-wrap pr-4 text-left font-mono text-xs leading-5 text-slate-100 ${
+				isSelected ? "bg-slate-800" : "hover:bg-slate-900"
+			}`}
 		>
 			<span
 				className={`mr-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none ${severityOption.markerClassName}`}
@@ -155,7 +182,7 @@ function LogLineRow({ ariaAttributes, filteredLogLines, index, logSearch, style 
 				{severityOption.label}
 			</span>
 			{renderHighlightedLogLine(line, logSearch)}
-		</div>
+		</button>
 	);
 }
 
@@ -177,6 +204,7 @@ function App() {
 	const [rawLogLines, setRawLogLines] = useState([]);
 	const [logSearch, setLogSearch] = useState("");
 	const [activeSeverityFilters, setActiveSeverityFilters] = useState([]);
+	const [selectedLogLine, setSelectedLogLine] = useState(null);
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
@@ -397,6 +425,9 @@ function App() {
 	const hasActiveLogSearch = logSearch.trim().length > 0;
 	const hasActiveSeverityFilters = activeSeverityFilters.length > 0;
 	const hasActiveLogFilters = hasActiveLogSearch || hasActiveSeverityFilters;
+	const selectedLogLineMetadata = selectedLogLine
+		? parseLogLineMetadata(selectedLogLine.line, selectedNamespace, selectedPod)
+		: null;
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -446,6 +477,7 @@ function App() {
 			setSelectedPod("");
 			setRawLogLines([]);
 			setActiveSeverityFilters([]);
+			setSelectedLogLine(null);
 			setIsLogAutoScrollPaused(false);
 			setHasNewLogsWhilePaused(false);
 			setLogStatus("Select a project and pod to stream logs");
@@ -465,6 +497,7 @@ function App() {
 		setSelectedPod(nextPod);
 		setRawLogLines([]);
 		setActiveSeverityFilters([]);
+		setSelectedLogLine(null);
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
 		setLogStatus(
@@ -518,6 +551,10 @@ function App() {
 
 	const clearSeverityFilters = () => {
 		setActiveSeverityFilters([]);
+	};
+
+	const closeLogLineDetails = () => {
+		setSelectedLogLine(null);
 	};
 
 	return (
@@ -695,25 +732,81 @@ function App() {
 							lines.
 						</p>
 					)}
-					{filteredLogLines.length > 0 ? (
-						<List
-							listRef={logListRef}
-							onScroll={handleLogViewerScroll}
-							rowComponent={LogLineRow}
-							rowCount={filteredLogLines.length}
-							rowHeight={LOG_ROW_HEIGHT}
-							rowProps={{ filteredLogLines, logSearch }}
-							overscanCount={8}
-							className="mt-4 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100"
-							style={{ height: LOG_LIST_HEIGHT }}
-						/>
-					) : (
-						<div className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-100">
-							{hasActiveLogFilters
-								? "No log lines match your filters."
-								: "No log lines received yet."}
-						</div>
-					)}
+					<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+						{filteredLogLines.length > 0 ? (
+							<List
+								listRef={logListRef}
+								onScroll={handleLogViewerScroll}
+								rowComponent={LogLineRow}
+								rowCount={filteredLogLines.length}
+								rowHeight={LOG_ROW_HEIGHT}
+								rowProps={{
+									filteredLogLines,
+									logSearch,
+									onSelectLogLine: setSelectedLogLine,
+									selectedLogLine,
+								}}
+								overscanCount={8}
+								className="mt-4 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100"
+								style={{ height: LOG_LIST_HEIGHT }}
+							/>
+						) : (
+							<div className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-100">
+								{hasActiveLogFilters
+									? "No log lines match your filters."
+									: "No log lines received yet."}
+							</div>
+						)}
+						{selectedLogLine && selectedLogLineMetadata && (
+							<aside className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+								<div className="flex items-start justify-between gap-3">
+									<div>
+										<h3 className="text-sm font-semibold text-slate-900">
+											Log line details
+										</h3>
+										<p className="mt-1 text-xs text-slate-600">
+											Inspect the selected log entry.
+										</p>
+									</div>
+									<button
+										type="button"
+										onClick={closeLogLineDetails}
+										className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
+									>
+										Close
+									</button>
+								</div>
+								<div className="mt-4 space-y-3 text-sm">
+									<div>
+										<p className="font-medium text-slate-700">Raw log text</p>
+										<pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900">
+											{selectedLogLine.line}
+										</pre>
+									</div>
+									<div>
+										<p className="font-medium text-slate-700">Parsed metadata</p>
+										<dl className="mt-2 grid gap-2 rounded-md border border-slate-200 bg-white p-3 text-xs">
+											{[
+												["timestamp", selectedLogLineMetadata.timestamp],
+												["severity", selectedLogLineMetadata.severity],
+												["namespace", selectedLogLineMetadata.namespace],
+												["pod", selectedLogLineMetadata.pod],
+											].map(([label, value]) => (
+												<div key={label} className="grid grid-cols-3 gap-2">
+													<dt className="font-medium capitalize text-slate-600">
+														{label}
+													</dt>
+													<dd className="col-span-2 break-words text-slate-900">
+														{value || "Not available"}
+													</dd>
+												</div>
+											))}
+										</dl>
+									</div>
+								</div>
+							</aside>
+						)}
+					</div>
 				</section>
 			</div>
 		</main>
