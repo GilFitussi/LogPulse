@@ -60,6 +60,45 @@ const authStatusContent = {
 	},
 };
 
+function renderHighlightedLogLine(line, searchText) {
+	const normalizedSearchText = searchText.trim().toLowerCase();
+
+	if (!normalizedSearchText) {
+		return line;
+	}
+
+	const normalizedLine = line.toLowerCase();
+	const highlightedParts = [];
+	let currentIndex = 0;
+	let matchIndex = normalizedLine.indexOf(normalizedSearchText, currentIndex);
+
+	while (matchIndex !== -1) {
+		if (matchIndex > currentIndex) {
+			highlightedParts.push(line.slice(currentIndex, matchIndex));
+		}
+
+		const matchEndIndex = matchIndex + normalizedSearchText.length;
+
+		highlightedParts.push(
+			<mark
+				key={`${matchIndex}-${highlightedParts.length}`}
+				className="rounded bg-amber-300 px-0.5 text-slate-950"
+			>
+				{line.slice(matchIndex, matchEndIndex)}
+			</mark>,
+		);
+
+		currentIndex = matchEndIndex;
+		matchIndex = normalizedLine.indexOf(normalizedSearchText, currentIndex);
+	}
+
+	if (currentIndex < line.length) {
+		highlightedParts.push(line.slice(currentIndex));
+	}
+
+	return highlightedParts;
+}
+
 function App() {
 	const [healthStatus, setHealthStatus] = useState(
 		"Checking backend health...",
@@ -76,6 +115,7 @@ function App() {
 	const [podSearch, setPodSearch] = useState("");
 	const [selectedPod, setSelectedPod] = useState("");
 	const [rawLogLines, setRawLogLines] = useState([]);
+	const [logSearch, setLogSearch] = useState("");
 	const [logStatus, setLogStatus] = useState(
 		"Select a project and pod to stream logs",
 	);
@@ -288,7 +328,8 @@ function App() {
 	}, [selectedNamespace, selectedPod]);
 
 	const authContent = authStatusContent[authStatus];
-	const filteredLogLines = getFilteredLogLines(rawLogLines);
+	const filteredLogLines = getFilteredLogLines(rawLogLines, logSearch);
+	const hasActiveLogSearch = logSearch.trim().length > 0;
 
 	useEffect(() => {
 		isLogAutoScrollPausedRef.current = isLogAutoScrollPaused;
@@ -390,6 +431,10 @@ function App() {
 
 		setIsLogAutoScrollPaused(false);
 		setHasNewLogsWhilePaused(false);
+	};
+
+	const clearLogSearch = () => {
+		setLogSearch("");
 	};
 
 	return (
@@ -502,14 +547,52 @@ function App() {
 							Jump to latest
 						</button>
 					)}
+					<div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+						<div className="flex-1">
+							<label
+								htmlFor="log-search"
+								className="block text-sm text-slate-700"
+							>
+								Search current log buffer
+							</label>
+							<input
+								id="log-search"
+								value={logSearch}
+								onChange={(event) => setLogSearch(event.target.value)}
+								placeholder="Filter logs by text..."
+								className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+							/>
+						</div>
+						<button
+							type="button"
+							onClick={clearLogSearch}
+							disabled={!hasActiveLogSearch}
+							className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+						>
+							Clear search
+						</button>
+					</div>
+					{hasActiveLogSearch && (
+						<p className="mt-2 text-sm text-slate-600">
+							Showing {filteredLogLines.length} of {rawLogLines.length} buffered log
+							lines.
+						</p>
+					)}
 					<pre
 						ref={logViewerRef}
 						onScroll={handleLogViewerScroll}
 						className="mt-4 h-72 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs leading-5 whitespace-pre-wrap text-slate-100"
 					>
 						{filteredLogLines.length > 0
-							? filteredLogLines.join("\n")
-							: "No log lines received yet."}
+							? filteredLogLines.map((line, index) => (
+									<span key={`${index}-${line}`}>
+										{renderHighlightedLogLine(line, logSearch)}
+										{index < filteredLogLines.length - 1 ? "\n" : ""}
+									</span>
+								))
+							: hasActiveLogSearch
+								? "No log lines match your search."
+								: "No log lines received yet."}
 					</pre>
 				</section>
 			</div>

@@ -20,6 +20,14 @@ export function appendLogLines(
 	return nextLines.slice(nextLines.length - maxLines);
 }
 
-export function getFilteredLogLines(rawLogLines) {
-	return rawLogLines;
+export function getFilteredLogLines(rawLogLines, searchText = "") {
+	const normalizedSearchText = searchText.trim().toLowerCase();
+
+	if (!normalizedSearchText) {
+		return rawLogLines;
+	}
+
+	return rawLogLines.filter((line) =>
+		line.toLowerCase().includes(normalizedSearchText),
+	);
 }
