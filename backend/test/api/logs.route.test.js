@@ -99,6 +99,7 @@ describe("GET /api/logs/:namespace/:pod", () => {
 			"my-project",
 			"api-123",
 			expect.any(Function),
+			undefined,
 		);
 
 		stream.close();
@@ -121,6 +122,24 @@ describe("GET /api/logs/:namespace/:pod", () => {
 		);
 	});
 
+	it("passes a requested container to the log stream service", async () => {
+		streamPodLogs.mockResolvedValue({ abort: jest.fn() });
+
+		const stream = await openLogStream(
+			"/api/logs/my-project/api-123?container=api",
+		);
+		await waitForTick();
+
+		expect(streamPodLogs).toHaveBeenCalledWith(
+			"my-project",
+			"api-123",
+			expect.any(Function),
+			"api",
+		);
+
+		stream.close();
+	});
+
 	it("rejects invalid namespace params before opening a stream", async () => {
 		isValidNamespace.mockReturnValue(false);
 
@@ -132,7 +151,7 @@ describe("GET /api/logs/:namespace/:pod", () => {
 					port: server.address().port,
 					path: "/api/logs/Invalid_Namespace/api-123",
 				},
-				(resolve),
+				resolve,
 			);
 			request.on("error", reject);
 		});

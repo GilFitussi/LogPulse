@@ -834,13 +834,18 @@ function App() {
 				} catch {
 					setLogStatus(event.data);
 				}
+				eventSource.close();
 				return;
 			}
 
 			setLogStatus("Log stream connection error");
 		});
 
-		eventSource.onerror = () => {
+		eventSource.onerror = (event) => {
+			if (event?.data) {
+				return;
+			}
+
 			setLogStatus("Log stream connection error");
 		};
 
