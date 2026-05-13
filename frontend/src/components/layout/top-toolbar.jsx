@@ -6,6 +6,7 @@ import {
 	Database,
 	LoaderCircle,
 	Search,
+	Server,
 	ShieldAlert,
 	Terminal,
 } from "lucide-react";
@@ -170,6 +171,7 @@ export function TopToolbar({
 
 export function SecondaryFilterToolbar({
 	namespaceSearchControl,
+	deploymentSearchControl,
 	podSearchControl,
 	searchControl,
 	severityFilterControls,
@@ -185,6 +187,13 @@ export function SecondaryFilterToolbar({
 						className="min-w-64 flex-1 md:max-w-md"
 					>
 						{namespaceSearchControl}
+					</ToolbarField>
+					<ToolbarField
+						icon={Server}
+						label="Deployment"
+						className="min-w-64 flex-1 md:max-w-md"
+					>
+						{deploymentSearchControl}
 					</ToolbarField>
 					<ToolbarField
 						icon={Boxes}

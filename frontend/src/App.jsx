@@ -519,8 +519,16 @@ function App() {
 	);
 	const [namespaceSearch, setNamespaceSearch] = useState("");
 	const [selectedNamespace, setSelectedNamespace] = useState("");
+	const [deployments, setDeployments] = useState([]);
+	const [deploymentsStatus, setDeploymentsStatus] = useState(
+		"Select a project to load deployments",
+	);
+	const [deploymentSearch, setDeploymentSearch] = useState("");
+	const [selectedDeployment, setSelectedDeployment] = useState("");
 	const [pods, setPods] = useState([]);
-	const [podsStatus, setPodsStatus] = useState("Select a project to load pods");
+	const [podsStatus, setPodsStatus] = useState(
+		"Select a deployment to load pods",
+	);
 	const [podSearch, setPodSearch] = useState("");
 	const [selectedPod, setSelectedPod] = useState("");
 	const [rawLogLines, setRawLogLines] = useState([]);
@@ -531,7 +539,7 @@ function App() {
 		useState(false);
 	const [logTransferStatus, setLogTransferStatus] = useState("");
 	const [logStatus, setLogStatus] = useState(
-		"Select a project and pod to stream logs",
+		"Select a project, deployment and pod to stream logs",
 	);
 	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
 	const [newLogCountWhilePaused, setNewLogCountWhilePaused] = useState(0);
@@ -654,12 +662,74 @@ function App() {
 
 		const controller = new AbortController();
 
+		const loadDeployments = async () => {
+			setDeploymentsStatus("Loading deployments...");
+
+			try {
+				const response = await fetch(
+					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/deployments`,
+					{ signal: controller.signal },
+				);
+				const data = await response.json().catch(() => ({}));
+
+				if (response.status === 401) {
+					setDeploymentsStatus(
+						data.details || data.error || "OpenShift authentication failed",
+					);
+					return;
+				}
+
+				if (response.status === 403) {
+					setDeploymentsStatus(
+						data.details ||
+							"Your oc user cannot list deployments in this project",
+					);
+					return;
+				}
+
+				if (!response.ok) {
+					setDeploymentsStatus(
+						data.details || data.error || "Unable to load deployments",
+					);
+					return;
+				}
+
+				if (!Array.isArray(data.deployments)) {
+					setDeploymentsStatus("Unexpected deployments response from backend");
+					return;
+				}
+
+				setDeployments(data.deployments);
+				setDeploymentsStatus(
+					data.deployments.length > 0
+						? "Choose a deployment"
+						: "No deployments found",
+				);
+			} catch (error) {
+				if (error.name !== "AbortError") {
+					setDeploymentsStatus("Unable to reach backend");
+				}
+			}
+		};
+
+		loadDeployments();
+
+		return () => controller.abort();
+	}, [selectedNamespace]);
+
+	useEffect(() => {
+		if (!selectedNamespace || !selectedDeployment) {
+			return undefined;
+		}
+
+		const controller = new AbortController();
+
 		const loadPods = async () => {
 			setPodsStatus("Loading pods...");
 
 			try {
 				const response = await fetch(
-					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/pods`,
+					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/deployments/${encodeURIComponent(selectedDeployment)}/pods`,
 					{ signal: controller.signal },
 				);
 				const data = await response.json().catch(() => ({}));
@@ -673,7 +743,7 @@ function App() {
 
 				if (response.status === 403) {
 					setPodsStatus(
-						data.details || "Your oc user cannot list pods in this project",
+						data.details || "Your oc user cannot list pods for this deployment",
 					);
 					return;
 				}
@@ -700,7 +770,7 @@ function App() {
 		loadPods();
 
 		return () => controller.abort();
-	}, [selectedNamespace]);
+	}, [selectedDeployment, selectedNamespace]);
 
 	const appendReceivedLogLines = useCallback((receivedLogLines) => {
 		const formattedLogLines = (
@@ -860,7 +930,13 @@ function App() {
 	const filteredNamespaces = namespaces.filter((namespace) =>
 		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
 	);
-	const podNames = pods.map((pod) => pod.name).filter(Boolean);
+	const deploymentNames = deployments
+		.map((deployment) => deployment.name)
+		.filter(Boolean);
+	const filteredDeploymentNames = deploymentNames.filter((deploymentName) =>
+		deploymentName.toLowerCase().includes(deploymentSearch.toLowerCase()),
+	);
+	const podNames = [...new Set(pods.map((pod) => pod.name).filter(Boolean))];
 	const filteredPodNames = podNames.filter((podName) =>
 		podName.toLowerCase().includes(podSearch.toLowerCase()),
 	);
@@ -878,6 +954,9 @@ function App() {
 		const resolvedNamespace = nextNamespace || "";
 
 		if (resolvedNamespace !== selectedNamespace) {
+			setDeployments([]);
+			setDeploymentSearch("");
+			setSelectedDeployment("");
 			setPods([]);
 			setPodSearch("");
 			setSelectedPod("");
@@ -890,13 +969,53 @@ function App() {
 			setPausedVisibleLogLines(null);
 			setIsLogAutoScrollPaused(false);
 			setNewLogCountWhilePaused(0);
-			setLogStatus("Select a project and pod to stream logs");
-			setPodsStatus(
-				resolvedNamespace ? "Loading pods..." : "Select a project to load pods",
+			setLogStatus("Select a project, deployment and pod to stream logs");
+			setDeploymentsStatus(
+				resolvedNamespace
+					? "Loading deployments..."
+					: "Select a project to load deployments",
 			);
+			setPodsStatus("Select a deployment to load pods");
 		}
 
 		setSelectedNamespace(resolvedNamespace);
+	};
+
+	const handleDeploymentChange = (event) => {
+		const value = event.target.value;
+		const nextDeployment = deploymentNames.includes(value) ? value : null;
+
+		setDeploymentSearch(value);
+
+		if (nextDeployment === null && value !== "") {
+			return;
+		}
+
+		const resolvedDeployment = nextDeployment || "";
+
+		if (resolvedDeployment === selectedDeployment) {
+			return;
+		}
+
+		setSelectedDeployment(resolvedDeployment);
+		setPods([]);
+		setPodSearch("");
+		setSelectedPod("");
+		setRawLogLines([]);
+		setActiveSeverityFilters([]);
+		setSelectedLogLine(null);
+		setIncludeFilteredOutLogsForExport(false);
+		setLogTransferStatus("");
+		isManualLogFollowingPausedRef.current = false;
+		setPausedVisibleLogLines(null);
+		setIsLogAutoScrollPaused(false);
+		setNewLogCountWhilePaused(0);
+		setPodsStatus(
+			resolvedDeployment
+				? "Loading pods..."
+				: "Select a deployment to load pods",
+		);
+		setLogStatus("Select a project, deployment and pod to stream logs");
 	};
 
 	const handlePodChange = (event) => {
@@ -928,7 +1047,7 @@ function App() {
 		setLogStatus(
 			resolvedPod
 				? "Connecting to log stream..."
-				: "Select a project and pod to stream logs",
+				: "Select a project, deployment and pod to stream logs",
 		);
 	};
 
@@ -1070,6 +1189,7 @@ function App() {
 		const exportPayload = {
 			exportedAt: new Date().toISOString(),
 			namespace: selectedNamespace || null,
+			deployment: selectedDeployment || null,
 			pod: selectedPod || null,
 			filters: {
 				search: logSearch,
@@ -1127,6 +1247,7 @@ function App() {
 						<input
 							id="namespace-selector"
 							list="namespace-options"
+							autoComplete="off"
 							value={namespaceSearch}
 							onChange={handleNamespaceChange}
 							placeholder="Search projects..."
@@ -1141,17 +1262,45 @@ function App() {
 						</datalist>
 					</>
 				}
+				deploymentSearchControl={
+					<>
+						<input
+							id="deployment-selector"
+							list="deployment-options"
+							autoComplete="off"
+							value={deploymentSearch}
+							onChange={handleDeploymentChange}
+							placeholder={
+								selectedNamespace
+									? "Search deployments..."
+									: "Select a project first"
+							}
+							disabled={!selectedNamespace}
+							aria-label="Search deployments"
+							title={selectedDeployment || deploymentsStatus}
+							className={toolbarInputClassName}
+						/>
+						<datalist id="deployment-options">
+							{filteredDeploymentNames.map((deploymentName) => (
+								<option key={deploymentName} value={deploymentName} />
+							))}
+						</datalist>
+					</>
+				}
 				podSearchControl={
 					<>
 						<input
 							id="pod-selector"
 							list="pod-options"
+							autoComplete="off"
 							value={podSearch}
 							onChange={handlePodChange}
 							placeholder={
-								selectedNamespace ? "Search pods..." : "Select a project first"
+								selectedDeployment
+									? "Search pods..."
+									: "Select a deployment first"
 							}
-							disabled={!selectedNamespace}
+							disabled={!selectedDeployment}
 							aria-label="Search pods"
 							title={selectedPod || podsStatus}
 							className={toolbarInputClassName}
