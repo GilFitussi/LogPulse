@@ -7,6 +7,15 @@ const router = new Router({ prefix: "/api" });
 
 const LOG_BATCH_INTERVAL_MS = 100;
 const MAX_LOG_BATCH_SIZE = 250;
+const CONTAINER_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+
+function isValidContainer(container) {
+	return (
+		typeof container === "string" &&
+		container.length > 0 &&
+		CONTAINER_NAME_PATTERN.test(container)
+	);
+}
 
 function writeSseEvent(res, event, data) {
 	res.write(`event: ${event}\n`);
@@ -47,6 +56,7 @@ function createLogBatcher(res) {
 
 router.get("/logs/:namespace/:pod", async (ctx) => {
 	const { namespace, pod } = ctx.params;
+	const { container } = ctx.query;
 
 	if (!isValidNamespace(namespace)) {
 		ctx.throw(400, "Invalid namespace");
@@ -54,6 +64,10 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 
 	if (!isValidPod(pod)) {
 		ctx.throw(400, "Invalid pod");
+	}
+
+	if (container !== undefined && !isValidContainer(container)) {
+		ctx.throw(400, "Invalid container");
 	}
 
 	ctx.respond = false;
@@ -79,11 +93,16 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 	ctx.req.on("close", cleanup);
 
 	try {
-		logStream = await streamPodLogs(namespace, pod, (logLine) => {
-			if (!disconnected) {
-				logBatcher.add(logLine);
-			}
-		});
+		logStream = await streamPodLogs(
+			namespace,
+			pod,
+			(logLine) => {
+				if (!disconnected) {
+					logBatcher.add(logLine);
+				}
+			},
+			container,
+		);
 
 		if (disconnected) {
 			logStream.abort();
@@ -102,4 +121,5 @@ router.get("/logs/:namespace/:pod", async (ctx) => {
 
 module.exports = router;
 module.exports.createLogBatcher = createLogBatcher;
+module.exports.isValidContainer = isValidContainer;
 module.exports.LOG_BATCH_INTERVAL_MS = LOG_BATCH_INTERVAL_MS;

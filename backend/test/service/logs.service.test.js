@@ -9,6 +9,7 @@ jest.mock("../../src/service/kubeClient.service", () => ({
 const fetch = require("node-fetch");
 const { createKubeConfig } = require("../../src/service/kubeClient.service");
 const {
+	chooseDefaultLogContainer,
 	parseLogLine,
 	streamPodLogs,
 } = require("../../src/service/logs.service");
@@ -27,6 +28,14 @@ describe("parseLogLine", () => {
 
 	it("returns only line text when no timestamp is available", () => {
 		expect(parseLogLine("app started")).toEqual({ line: "app started" });
+	});
+});
+
+describe("chooseDefaultLogContainer", () => {
+	it("prefers application containers over common sidecars", () => {
+		expect(
+			chooseDefaultLogContainer([{ name: "istio-proxy" }, { name: "api" }]),
+		).toBe("api");
 	});
 });
 
@@ -50,7 +59,14 @@ describe("streamPodLogs", () => {
 	it("streams Kubernetes log chunks as individual parsed lines", async () => {
 		const body = new PassThrough();
 		const lines = [];
-		fetch.mockResolvedValue({ ok: true, body });
+		fetch
+			.mockResolvedValueOnce({
+				ok: true,
+				json: jest.fn().mockResolvedValue({
+					spec: { containers: [{ name: "api" }] },
+				}),
+			})
+			.mockResolvedValueOnce({ ok: true, body });
 
 		await streamPodLogs("my-project", "api-123", (line) => lines.push(line));
 
@@ -58,8 +74,8 @@ describe("streamPodLogs", () => {
 		body.write(" line\n");
 		await waitForStream();
 
-		expect(fetch).toHaveBeenCalledWith(
-			"https://api.example.test/api/v1/namespaces/my-project/pods/api-123/log?follow=true&timestamps=true",
+		expect(fetch).toHaveBeenLastCalledWith(
+			"https://api.example.test/api/v1/namespaces/my-project/pods/api-123/log?follow=true&timestamps=true&container=api",
 			expect.objectContaining({
 				method: "GET",
 				headers: { authorization: "Bearer token" },
@@ -74,10 +90,17 @@ describe("streamPodLogs", () => {
 	it("aborts the Kubernetes request and destroys streams during cleanup", async () => {
 		const body = new PassThrough();
 		let requestOptions;
-		fetch.mockImplementation((_url, options) => {
-			requestOptions = options;
-			return Promise.resolve({ ok: true, body });
-		});
+		fetch
+			.mockResolvedValueOnce({
+				ok: true,
+				json: jest.fn().mockResolvedValue({
+					spec: { containers: [{ name: "api" }] },
+				}),
+			})
+			.mockImplementationOnce((_url, options) => {
+				requestOptions = options;
+				return Promise.resolve({ ok: true, body });
+			});
 
 		const stream = await streamPodLogs("my-project", "api-123", jest.fn());
 		stream.abort();
@@ -88,11 +111,18 @@ describe("streamPodLogs", () => {
 
 	it("maps Kubernetes log API errors", async () => {
 		const body = { message: 'pods "missing" not found' };
-		fetch.mockResolvedValue({
-			ok: false,
-			status: 404,
-			json: jest.fn().mockResolvedValue(body),
-		});
+		fetch
+			.mockResolvedValueOnce({
+				ok: true,
+				json: jest.fn().mockResolvedValue({
+					spec: { containers: [{ name: "api" }] },
+				}),
+			})
+			.mockResolvedValueOnce({
+				ok: false,
+				status: 404,
+				json: jest.fn().mockResolvedValue(body),
+			});
 
 		await expect(
 			streamPodLogs("my-project", "missing", jest.fn()),

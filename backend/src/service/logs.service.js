@@ -4,6 +4,13 @@ const { KubernetesApiError } = require("../errors/app.error");
 
 const TIMESTAMP_PREFIX =
 	/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s+(.*)$/;
+const COMMON_SIDECAR_CONTAINER_NAMES = new Set([
+	"istio-proxy",
+	"linkerd-proxy",
+	"vault-agent",
+	"filebeat",
+	"fluent-bit",
+]);
 
 function parseLogLine(rawLine) {
 	const match = rawLine.match(TIMESTAMP_PREFIX);
@@ -43,7 +50,54 @@ function createLineWritable(onLine) {
 	});
 }
 
-async function streamPodLogs(namespace, pod, onLogLine) {
+function chooseDefaultLogContainer(containers = []) {
+	if (!Array.isArray(containers) || containers.length === 0) {
+		return undefined;
+	}
+
+	const preferredContainer = containers.find(
+		(container) =>
+			container?.name && !COMMON_SIDECAR_CONTAINER_NAMES.has(container.name),
+	);
+
+	return preferredContainer?.name || containers[0]?.name;
+}
+
+async function getPodContainers(kubeConfig, clusterServer, namespace, pod) {
+	const url = new URL(
+		`${clusterServer}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}`,
+	);
+	const requestOptions = await kubeConfig.applyToFetchOptions({});
+	requestOptions.method = "GET";
+
+	const response = await fetch(url.toString(), requestOptions);
+
+	if (!response.ok) {
+		throw await createLogStreamError(response);
+	}
+
+	const podResource = await response.json();
+
+	return podResource?.spec?.containers || [];
+}
+
+async function resolveLogContainer(
+	kubeConfig,
+	clusterServer,
+	namespace,
+	pod,
+	container,
+) {
+	if (container) {
+		return container;
+	}
+
+	return chooseDefaultLogContainer(
+		await getPodContainers(kubeConfig, clusterServer, namespace, pod),
+	);
+}
+
+async function streamPodLogs(namespace, pod, onLogLine, container) {
 	try {
 		const { createKubeConfig } = require("./kubeClient.service");
 		const kubeConfig = await createKubeConfig();
@@ -53,11 +107,22 @@ async function streamPodLogs(namespace, pod, onLogLine) {
 			throw new Error("No currently active cluster");
 		}
 
+		const selectedContainer = await resolveLogContainer(
+			kubeConfig,
+			cluster.server,
+			namespace,
+			pod,
+			container,
+		);
 		const url = new URL(
 			`${cluster.server}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}/log`,
 		);
 		url.searchParams.set("follow", "true");
 		url.searchParams.set("timestamps", "true");
+
+		if (selectedContainer) {
+			url.searchParams.set("container", selectedContainer);
+		}
 
 		const controller = new AbortController();
 		const requestOptions = await kubeConfig.applyToFetchOptions({});
@@ -102,6 +167,7 @@ async function createLogStreamError(response) {
 }
 
 module.exports = {
+	chooseDefaultLogContainer,
 	parseLogLine,
 	streamPodLogs,
 };
