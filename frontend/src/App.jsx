@@ -59,6 +59,7 @@ const LOG_LIST_HEIGHT = 560;
 const LOG_ROW_HEIGHT = 22;
 const LOG_DENSITY_BUCKET_COUNT = 36;
 const LOG_DENSITY_MAX_BAR_HEIGHT = 16;
+const LOG_DENSITY_RECENT_LINE_COUNT = 1000;
 
 const severityFilterOptions = [
 	{
@@ -150,13 +151,17 @@ function formatDensityBucketLabel(bucket, mode) {
 function buildLogDensityBuckets(
 	logLines,
 	bucketCount = LOG_DENSITY_BUCKET_COUNT,
+	startIndexOffset = 0,
 ) {
 	if (logLines.length === 0) {
-		return { buckets: [], mode: "index" };
+		return { buckets: [], mode: "index", lineCount: 0 };
 	}
 
 	const timestampedLines = logLines
-		.map((line, index) => ({ index, timestampMs: getLogTimestampMs(line) }))
+		.map((line, index) => ({
+			index: startIndexOffset + index,
+			timestampMs: getLogTimestampMs(line),
+		}))
 		.filter(({ timestampMs }) => timestampMs !== null)
 		.sort(
 			(firstLine, secondLine) => firstLine.timestampMs - secondLine.timestampMs,
@@ -166,10 +171,10 @@ function buildLogDensityBuckets(
 	const bucketsLength = Math.min(bucketCount, logLines.length);
 	const buckets = Array.from({ length: bucketsLength }, (_, bucketIndex) => ({
 		count: 0,
-		endIndex: 0,
+		endIndex: startIndexOffset,
 		endTimeMs: null,
 		index: bucketIndex,
-		startIndex: logLines.length - 1,
+		startIndex: startIndexOffset + logLines.length - 1,
 		startTimeMs: null,
 	}));
 
@@ -201,7 +206,7 @@ function buildLogDensityBuckets(
 					: Math.max(bucket.endTimeMs, timestampMs);
 		});
 
-		return { buckets, mode: "time" };
+		return { buckets, mode: "time", lineCount: logLines.length };
 	}
 
 	logLines.forEach((_, index) => {
@@ -212,11 +217,13 @@ function buildLogDensityBuckets(
 		const bucket = buckets[bucketIndex];
 
 		bucket.count += 1;
-		bucket.startIndex = Math.min(bucket.startIndex, index);
-		bucket.endIndex = Math.max(bucket.endIndex, index);
+		const sourceIndex = startIndexOffset + index;
+
+		bucket.startIndex = Math.min(bucket.startIndex, sourceIndex);
+		bucket.endIndex = Math.max(bucket.endIndex, sourceIndex);
 	});
 
-	return { buckets, mode: "index" };
+	return { buckets, mode: "index", lineCount: logLines.length };
 }
 
 function parseStructuredJsonFromLogLine(line) {
@@ -456,11 +463,19 @@ function LogDensityMap({ densityData, onBucketClick }) {
 	);
 
 	return (
-		<div className="mt-1 flex justify-end">
+		<div className="mt-1 space-y-1">
+			<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+				<span>Recent log volume</span>
+				{densityData.lineCount > 0 ? (
+					<span>
+						Latest {densityData.lineCount.toLocaleString()} visible logs
+					</span>
+				) : null}
+			</div>
 			{densityData.buckets.length > 0 ? (
 				<div
 					className="flex h-4 w-full items-end gap-0.5 overflow-hidden rounded bg-muted/20 px-1 py-0.5 opacity-80"
-					aria-label="Log volume density timeline"
+					aria-label="Recent log volume timeline, oldest to newest"
 				>
 					{densityData.buckets.map((bucket) => {
 						const barHeight = Math.max(
@@ -860,10 +875,18 @@ function App() {
 		activeSeverityFilters,
 	);
 	const visibleLogLines = pausedVisibleLogLines ?? filteredLogLines;
-	const logDensityData = useMemo(
-		() => buildLogDensityBuckets(visibleLogLines),
-		[visibleLogLines],
-	);
+	const logDensityData = useMemo(() => {
+		const densityLogLines = filteredLogLines.slice(
+			-LOG_DENSITY_RECENT_LINE_COUNT,
+		);
+		const startIndexOffset = filteredLogLines.length - densityLogLines.length;
+
+		return buildLogDensityBuckets(
+			densityLogLines,
+			LOG_DENSITY_BUCKET_COUNT,
+			startIndexOffset,
+		);
+	}, [filteredLogLines]);
 	const logLinesStore = useMemo(() => {
 		const store = {};
 
@@ -1100,24 +1123,26 @@ function App() {
 	};
 
 	const jumpToDensityBucket = (bucket) => {
-		if (bucket.count === 0 || visibleLogLines.length === 0) {
+		if (bucket.count === 0 || filteredLogLines.length === 0) {
 			return;
 		}
 
 		const targetIndex = Math.min(
-			visibleLogLines.length - 1,
+			filteredLogLines.length - 1,
 			Math.max(0, bucket.startIndex),
 		);
 
-		logListRef.current?.scrollToRow({
-			align: "start",
-			index: targetIndex,
+		setPausedVisibleLogLines(filteredLogLines);
+		requestAnimationFrame(() => {
+			logListRef.current?.scrollToRow({
+				align: "start",
+				index: targetIndex,
+			});
 		});
 		setSelectedLogLine({
 			index: targetIndex,
-			line: visibleLogLines[targetIndex],
+			line: filteredLogLines[targetIndex],
 		});
-		setPausedVisibleLogLines(visibleLogLines);
 		isManualLogFollowingPausedRef.current = true;
 		isLogAutoScrollPausedRef.current = true;
 		setIsLogAutoScrollPaused(true);
