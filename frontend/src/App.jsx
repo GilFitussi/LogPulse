@@ -104,6 +104,16 @@ const AUTH_STATUS = {
 	ERROR: "error",
 };
 
+function getClusterApiErrorMessage(data, fallbackMessage) {
+	const details = data.details;
+	const detailsMessage =
+		details && typeof details === "object"
+			? Object.values(details).filter(Boolean).join(" ")
+			: details;
+
+	return detailsMessage || data.error || fallbackMessage;
+}
+
 function SearchableSelector({
 	id,
 	options,
@@ -594,14 +604,8 @@ function App() {
 			const data = await response.json().catch(() => ({}));
 
 			if (!response.ok) {
-				const details = data.details;
-				const detailsMessage =
-					details && typeof details === "object"
-						? Object.values(details).filter(Boolean).join(" ")
-						: details;
-
 				throw new Error(
-					detailsMessage || data.error || "Unable to create cluster",
+					getClusterApiErrorMessage(data, "Unable to create cluster"),
 				);
 			}
 
@@ -613,6 +617,54 @@ function App() {
 			setSelectedClusterId(data.cluster.id);
 
 			return data.cluster;
+		},
+		[loadClusters],
+	);
+
+	const updateCluster = useCallback(
+		async (cluster, clusterInput) => {
+			const response = await fetch(`${API_BASE_URL}/clusters/${cluster.id}`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(clusterInput),
+			});
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(
+					getClusterApiErrorMessage(data, "Unable to update cluster"),
+				);
+			}
+
+			if (!data.cluster) {
+				throw new Error("Unexpected update cluster response from backend");
+			}
+
+			await loadClusters();
+			setSelectedClusterId(data.cluster.id);
+
+			return data.cluster;
+		},
+		[loadClusters],
+	);
+
+	const deleteCluster = useCallback(
+		async (cluster) => {
+			const response = await fetch(`${API_BASE_URL}/clusters/${cluster.id}`, {
+				method: "DELETE",
+			});
+
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+
+				throw new Error(
+					getClusterApiErrorMessage(data, "Unable to delete cluster"),
+				);
+			}
+
+			await loadClusters();
 		},
 		[loadClusters],
 	);
@@ -1471,8 +1523,10 @@ function App() {
 						error={clustersError}
 						isLoading={isClustersLoading}
 						onCreateCluster={createCluster}
+						onDeleteCluster={deleteCluster}
 						onRefresh={loadClusters}
 						onSelectCluster={setSelectedClusterId}
+						onUpdateCluster={updateCluster}
 						selectedClusterId={selectedClusterId}
 					/>
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
