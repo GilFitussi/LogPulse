@@ -382,7 +382,7 @@ function renderHighlightedLogLine(line, searchText) {
 		highlightedParts.push(
 			<mark
 				key={`${matchIndex}-${highlightedParts.length}`}
-				className="rounded bg-amber-300 px-0.5 text-foreground"
+				className="rounded bg-amber-300 px-0.5 text-amber-950 ring-1 ring-amber-900/20"
 			>
 				{line.slice(matchIndex, matchEndIndex)}
 			</mark>,
