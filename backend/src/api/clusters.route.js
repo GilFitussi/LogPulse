@@ -7,6 +7,7 @@ const {
 	listClusters,
 	updateCluster,
 } = require("../service/clusterManager.service");
+const { loginToCluster } = require("../service/clusterOcLogin.service");
 
 const router = new Router();
 
@@ -38,6 +39,11 @@ const updateClusterSchema = Joi.object({
 	defaultNamespace: nullableStringSchema,
 	description: nullableStringSchema,
 }).min(1);
+
+const loginSchema = Joi.object({
+	username: Joi.string().trim().required(),
+	password: Joi.string().required(),
+});
 
 router.get("/clusters", async (ctx) => {
 	ctx.body = { clusters: await listClusters() };
@@ -103,6 +109,29 @@ router.patch("/clusters/:clusterId", async (ctx) => {
 	}
 
 	ctx.body = { cluster };
+});
+
+router.post("/clusters/:clusterId/login", async (ctx) => {
+	const validation = validateClusterInput(ctx.request.body, loginSchema);
+
+	if (!validation.valid) {
+		ctx.status = 400;
+		ctx.body = {
+			error: "Invalid login input",
+			details: validation.errors,
+		};
+		return;
+	}
+
+	const result = await loginToCluster(
+		parseClusterId(ctx.params.clusterId),
+		validation.value,
+	);
+
+	ctx.body = {
+		cluster: result.cluster,
+		username: result.username,
+	};
 });
 
 router.delete("/clusters/:clusterId", async (ctx) => {
