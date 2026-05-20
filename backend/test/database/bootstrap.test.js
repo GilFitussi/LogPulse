@@ -41,12 +41,14 @@ describe("database bootstrap", () => {
 		expect(columns.map((column) => column.name)).toEqual([
 			"id",
 			"name",
-			"api_server",
-			"context_name",
-			"namespace",
-			"last_seen_at",
-			"created_at",
-			"updated_at",
+			"apiUrl",
+			"defaultNamespace",
+			"description",
+			"createdAt",
+			"updatedAt",
+			"lastConnectedAt",
+			"lastConnectionStatus",
+			"lastConnectionError",
 		]);
 	});
 
