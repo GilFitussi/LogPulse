@@ -1,14 +1,18 @@
+import { useState } from "react";
 import {
 	AlertCircle,
 	CheckCircle2,
 	Circle,
 	LoaderCircle,
+	Plus,
 	RefreshCw,
 	Server,
 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { EmptyState, LoadingState } from "@/components/states";
 import { ToolbarButton } from "@/components/layout/top-toolbar";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 function getConnectionStatusConfig(status) {
@@ -65,6 +69,13 @@ function formatConnectionTime(value) {
 	return `Last connected ${date.toLocaleString()}`;
 }
 
+const initialClusterFormValues = {
+	name: "",
+	apiUrl: "",
+	defaultNamespace: "",
+	description: "",
+};
+
 function ClusterStatusBadge({ cluster }) {
 	const statusConfig = getConnectionStatusConfig(cluster.lastConnectionStatus);
 	const StatusIcon = statusConfig.Icon;
@@ -89,10 +100,157 @@ function ClusterStatusBadge({ cluster }) {
 	);
 }
 
+function ClusterFormModal({ onCreateCluster }) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [formValues, setFormValues] = useState(initialClusterFormValues);
+	const [error, setError] = useState("");
+	const [isSubmitting, setIsSubmitting] = useState(false);
+
+	const updateField = (fieldName) => (event) => {
+		setFormValues((currentValues) => ({
+			...currentValues,
+			[fieldName]: event.target.value,
+		}));
+		setError("");
+	};
+
+	const resetForm = () => {
+		setFormValues(initialClusterFormValues);
+		setError("");
+		setIsSubmitting(false);
+	};
+
+	const handleOpenChange = (nextOpen) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			resetForm();
+		}
+	};
+
+	const handleSubmit = async (event) => {
+		event.preventDefault();
+
+		const payload = {
+			name: formValues.name.trim(),
+			apiUrl: formValues.apiUrl.trim(),
+			defaultNamespace: formValues.defaultNamespace.trim() || null,
+			description: formValues.description.trim() || null,
+		};
+
+		if (!payload.name || !payload.apiUrl) {
+			setError("Name and API URL are required.");
+			return;
+		}
+
+		setIsSubmitting(true);
+		setError("");
+
+		try {
+			await onCreateCluster(payload);
+			setIsOpen(false);
+			resetForm();
+		} catch (submitError) {
+			setError(submitError.message || "Unable to create cluster.");
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
+	return (
+		<Dialog.Root open={isOpen} onOpenChange={handleOpenChange}>
+			<Dialog.Trigger asChild>
+				<ToolbarButton
+					type="button"
+					aria-label="Add cluster"
+					title="Add cluster"
+					className="w-7 px-0"
+				>
+					<Plus className="size-3.5" aria-hidden="true" />
+				</ToolbarButton>
+			</Dialog.Trigger>
+			<Dialog.Portal>
+				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
+					<div className="mb-4">
+						<Dialog.Title className="text-base font-semibold text-foreground">
+							Create cluster
+						</Dialog.Title>
+						<Dialog.Description className="mt-1 text-sm text-muted-foreground">
+							Add an OpenShift cluster endpoint to the cluster list.
+						</Dialog.Description>
+					</div>
+
+					<form className="space-y-3" onSubmit={handleSubmit}>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>Name</span>
+							<input
+								value={formValues.name}
+								onChange={updateField("name")}
+								required
+								placeholder="Production"
+								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+							/>
+						</label>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>API URL</span>
+							<input
+								value={formValues.apiUrl}
+								onChange={updateField("apiUrl")}
+								required
+								type="url"
+								placeholder="https://api.example.com:6443"
+								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+							/>
+						</label>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>Default namespace</span>
+							<input
+								value={formValues.defaultNamespace}
+								onChange={updateField("defaultNamespace")}
+								placeholder="Optional"
+								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+							/>
+						</label>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>Description</span>
+							<textarea
+								value={formValues.description}
+								onChange={updateField("description")}
+								placeholder="Optional notes about this cluster"
+								rows={3}
+								className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+							/>
+						</label>
+
+						{error ? (
+							<p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive ring-1 ring-destructive/20">
+								{error}
+							</p>
+						) : null}
+
+						<div className="flex justify-end gap-2 pt-2">
+							<Dialog.Close asChild>
+								<Button type="button" variant="outline" disabled={isSubmitting}>
+									Cancel
+								</Button>
+							</Dialog.Close>
+							<Button type="submit" disabled={isSubmitting}>
+								{isSubmitting ? "Creating..." : "Create cluster"}
+							</Button>
+						</div>
+					</form>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
 export function ClustersSidebar({
 	clusters,
 	error,
 	isLoading,
+	onCreateCluster,
 	onRefresh,
 	onSelectCluster,
 	selectedClusterId,
@@ -115,19 +273,22 @@ export function ClustersSidebar({
 							: "Choose a cluster"}
 					</p>
 				</div>
-				<ToolbarButton
-					type="button"
-					onClick={onRefresh}
-					disabled={isLoading}
-					aria-label="Refresh clusters"
-					title="Refresh clusters"
-					className="w-7 px-0"
-				>
-					<RefreshCw
-						className={cn("size-3.5", isLoading && "animate-spin")}
-						aria-hidden="true"
-					/>
-				</ToolbarButton>
+				<div className="flex shrink-0 items-center gap-1">
+					<ClusterFormModal onCreateCluster={onCreateCluster} />
+					<ToolbarButton
+						type="button"
+						onClick={onRefresh}
+						disabled={isLoading}
+						aria-label="Refresh clusters"
+						title="Refresh clusters"
+						className="w-7 px-0"
+					>
+						<RefreshCw
+							className={cn("size-3.5", isLoading && "animate-spin")}
+							aria-hidden="true"
+						/>
+					</ToolbarButton>
+				</div>
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-auto p-2">
