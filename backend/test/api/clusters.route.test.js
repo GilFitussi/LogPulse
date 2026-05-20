@@ -1,4 +1,5 @@
 const request = require("supertest");
+const { AppError } = require("../../src/errors/app.error");
 const {
 	createCluster,
 	deleteCluster,
@@ -6,6 +7,7 @@ const {
 	listClusters,
 	updateCluster,
 } = require("../../src/service/clusterManager.service");
+const { loginToCluster } = require("../../src/service/clusterOcLogin.service");
 
 jest.mock("../../src/service/clusterManager.service", () => ({
 	createCluster: jest.fn(),
@@ -13,6 +15,10 @@ jest.mock("../../src/service/clusterManager.service", () => ({
 	getClusterById: jest.fn(),
 	listClusters: jest.fn(),
 	updateCluster: jest.fn(),
+}));
+
+jest.mock("../../src/service/clusterOcLogin.service", () => ({
+	loginToCluster: jest.fn(),
 }));
 
 jest.mock("../../src/service/namespaces.service", () => ({
@@ -38,6 +44,7 @@ beforeEach(() => {
 	getClusterById.mockReset();
 	listClusters.mockReset();
 	updateCluster.mockReset();
+	loginToCluster.mockReset();
 });
 
 describe("GET /clusters", () => {
@@ -232,6 +239,113 @@ describe("PATCH /clusters/:clusterId", () => {
 			},
 		});
 		expect(updateCluster).not.toHaveBeenCalled();
+	});
+});
+
+describe("POST /clusters/:clusterId/login", () => {
+	it("logs in to a cluster with username and password", async () => {
+		const cluster = {
+			id: 1,
+			name: "Dev",
+			apiUrl: "https://api.dev.example.com:6443",
+			defaultNamespace: null,
+			description: null,
+			createdAt: "2026-05-20T10:00:00.000Z",
+			updatedAt: "2026-05-20T10:01:00.000Z",
+			lastConnectedAt: "2026-05-20T10:01:00.000Z",
+			lastConnectionStatus: "connected",
+			lastConnectionError: null,
+		};
+		loginToCluster.mockResolvedValue({
+			username: "developer",
+			cluster,
+		});
+
+		const response = await request(app.callback())
+			.post("/clusters/1/login")
+			.send({ username: " developer ", password: "secret" });
+
+		expect(response.status).toBe(200);
+		expect(response.body).toEqual({ cluster, username: "developer" });
+		expect(loginToCluster).toHaveBeenCalledWith(1, {
+			username: "developer",
+			password: "secret",
+		});
+	});
+
+	it("uses error middleware when logging in to a missing cluster", async () => {
+		loginToCluster.mockRejectedValue(
+			new AppError("Cluster not found", {
+				status: 404,
+				code: "CLUSTER_NOT_FOUND",
+			}),
+		);
+
+		const response = await request(app.callback())
+			.post("/clusters/999/login")
+			.send({ username: "developer", password: "secret" });
+
+		expect(response.status).toBe(404);
+		expect(response.body).toEqual({
+			error: "Cluster not found",
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(loginToCluster).toHaveBeenCalledWith(999, {
+			username: "developer",
+			password: "secret",
+		});
+	});
+
+	it("returns login errors without credentials", async () => {
+		const cluster = {
+			id: 1,
+			lastConnectedAt: "2026-05-20T10:01:00.000Z",
+			lastConnectionStatus: "failed",
+			lastConnectionError: "Invalid credentials",
+		};
+		loginToCluster.mockRejectedValue(
+			new AppError("Cluster login failed", {
+				status: 401,
+				code: "CLUSTER_LOGIN_FAILED",
+				details: {
+					message: "Invalid credentials",
+					cluster,
+				},
+				action: "Check the cluster API URL and credentials, then try again.",
+			}),
+		);
+
+		const response = await request(app.callback())
+			.post("/clusters/1/login")
+			.send({ username: "developer", password: "secret" });
+
+		expect(response.status).toBe(401);
+		expect(response.body).toEqual({
+			error: "Cluster login failed",
+			details: {
+				message: "Invalid credentials",
+				cluster,
+			},
+			code: "CLUSTER_LOGIN_FAILED",
+			action: "Check the cluster API URL and credentials, then try again.",
+		});
+		expect(JSON.stringify(response.body)).not.toContain("secret");
+	});
+
+	it("rejects missing credentials", async () => {
+		const response = await request(app.callback())
+			.post("/clusters/1/login")
+			.send({ username: "" });
+
+		expect(response.status).toBe(400);
+		expect(response.body).toEqual({
+			error: "Invalid login input",
+			details: {
+				username: '"username" is not allowed to be empty',
+				password: '"password" is required',
+			},
+		});
+		expect(loginToCluster).not.toHaveBeenCalled();
 	});
 });
 

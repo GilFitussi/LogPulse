@@ -6,6 +6,7 @@ const {
 	getClusterById,
 	listClusters,
 	updateCluster,
+	updateClusterConnectionStatus,
 } = require("../../src/service/clusterManager.service");
 
 const EXPECTED_CLUSTER_FIELDS = [
@@ -107,12 +108,47 @@ describe("cluster manager service", () => {
 		expect(updated.updatedAt).toEqual(expect.any(String));
 	});
 
+	it("updates only cluster connection status fields without changing updatedAt", async () => {
+		const cluster = await createCluster(
+			{ name: "Dev", apiUrl: "https://api.dev.example.com:6443" },
+			{ database },
+		);
+
+		const updated = await updateClusterConnectionStatus(
+			cluster.id,
+			{
+				lastConnectedAt: "2026-05-20T10:00:00.000Z",
+				lastConnectionStatus: "connected",
+				lastConnectionError: "",
+			},
+			{ database },
+		);
+
+		expect(updated).toMatchObject({
+			id: cluster.id,
+			name: "Dev",
+			apiUrl: "https://api.dev.example.com:6443",
+			lastConnectedAt: "2026-05-20T10:00:00.000Z",
+			lastConnectionStatus: "connected",
+			lastConnectionError: null,
+		});
+		expect(updated.createdAt).toBe(cluster.createdAt);
+		expect(updated.updatedAt).toBe(cluster.updatedAt);
+	});
+
 	it("returns null or false for missing clusters", async () => {
 		await expect(getClusterById(404, { database })).resolves.toBeNull();
 		await expect(
 			updateCluster(404, { name: "Missing" }, { database }),
 		).resolves.toBeNull();
 		await expect(deleteCluster(404, { database })).resolves.toBe(false);
+		await expect(
+			updateClusterConnectionStatus(
+				404,
+				{ lastConnectionStatus: "failed" },
+				{ database },
+			),
+		).resolves.toBeNull();
 		await expect(clusterExists(404, { database })).resolves.toBe(false);
 	});
 

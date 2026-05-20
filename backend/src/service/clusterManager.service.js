@@ -186,6 +186,40 @@ async function updateCluster(id, input, options = {}) {
 	});
 }
 
+async function updateClusterConnectionStatus(id, input, options = {}) {
+	const connectionStatus = {
+		lastConnectedAt: optionalString(input?.lastConnectedAt, "lastConnectedAt"),
+		lastConnectionStatus: optionalString(
+			input?.lastConnectionStatus,
+			"lastConnectionStatus",
+		),
+		lastConnectionError: optionalString(
+			input?.lastConnectionError,
+			"lastConnectionError",
+		),
+	};
+
+	return withDatabase(options.database, async (database) => {
+		const result = await database.run(
+			`UPDATE clusters
+			SET lastConnectedAt = ?, lastConnectionStatus = ?, lastConnectionError = ?
+			WHERE id = ?`,
+			[
+				connectionStatus.lastConnectedAt,
+				connectionStatus.lastConnectionStatus,
+				connectionStatus.lastConnectionError,
+				id,
+			],
+		);
+
+		if (result.changes === 0) {
+			return null;
+		}
+
+		return getClusterById(id, { database });
+	});
+}
+
 async function deleteCluster(id, options = {}) {
 	return withDatabase(options.database, async (database) => {
 		const result = await database.run("DELETE FROM clusters WHERE id = ?", [
@@ -210,6 +244,7 @@ module.exports = {
 	listClusters,
 	getClusterById,
 	updateCluster,
+	updateClusterConnectionStatus,
 	deleteCluster,
 	clusterExists,
 };
