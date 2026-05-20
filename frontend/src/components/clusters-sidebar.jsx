@@ -14,7 +14,11 @@ import { cn } from "@/lib/utils";
 function getConnectionStatusConfig(status) {
 	const normalizedStatus = String(status || "").toLowerCase();
 
-	if (["connected", "success", "online", "ok", "healthy"].includes(normalizedStatus)) {
+	if (
+		["connected", "success", "online", "ok", "healthy"].includes(
+			normalizedStatus,
+		)
+	) {
 		return {
 			Icon: CheckCircle2,
 			label: "Connected",
@@ -27,8 +31,7 @@ function getConnectionStatusConfig(status) {
 		return {
 			Icon: AlertCircle,
 			label: "Connection issue",
-			className:
-				"bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
+			className: "bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
 		};
 	}
 
@@ -65,7 +68,9 @@ function formatConnectionTime(value) {
 function ClusterStatusBadge({ cluster }) {
 	const statusConfig = getConnectionStatusConfig(cluster.lastConnectionStatus);
 	const StatusIcon = statusConfig.Icon;
-	const statusDetail = cluster.lastConnectionError || formatConnectionTime(cluster.lastConnectedAt);
+	const statusDetail =
+		cluster.lastConnectionError ||
+		formatConnectionTime(cluster.lastConnectedAt);
 
 	return (
 		<span
@@ -105,7 +110,9 @@ export function ClustersSidebar({
 						Clusters
 					</h2>
 					<p className="mt-0.5 truncate text-xs text-muted-foreground">
-						{selectedCluster ? `Selected: ${selectedCluster.name}` : "Choose a cluster"}
+						{selectedCluster
+							? `Selected: ${selectedCluster.name}`
+							: "Choose a cluster"}
 					</p>
 				</div>
 				<ToolbarButton
@@ -141,7 +148,8 @@ export function ClustersSidebar({
 				) : (
 					<div className="space-y-1" role="list" aria-label="Clusters">
 						{clusters.map((cluster) => {
-							const isSelected = String(cluster.id) === String(selectedClusterId);
+							const isSelected =
+								String(cluster.id) === String(selectedClusterId);
 
 							return (
 								<button

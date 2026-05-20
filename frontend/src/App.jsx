@@ -545,7 +545,9 @@ function App() {
 			const data = await response.json().catch(() => ({}));
 
 			if (!response.ok) {
-				setClustersError(data.details || data.error || "Unable to load clusters");
+				setClustersError(
+					data.details || data.error || "Unable to load clusters",
+				);
 				setClusters([]);
 				setSelectedClusterId(null);
 				return;
