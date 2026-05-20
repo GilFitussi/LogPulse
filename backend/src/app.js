@@ -4,6 +4,7 @@ const cors = require("@koa/cors");
 const authRouter = require("./api/auth.route");
 const namespacesRouter = require("./api/namespaces.route");
 const logsRouter = require("./api/logs.route");
+const clustersRouter = require("./api/clusters.route");
 const errorMiddleware = require("./middleware/error.middleware");
 
 const app = new Koa();
@@ -29,6 +30,8 @@ app.use(namespacesRouter.routes());
 app.use(namespacesRouter.allowedMethods());
 app.use(logsRouter.routes());
 app.use(logsRouter.allowedMethods());
+app.use(clustersRouter.routes());
+app.use(clustersRouter.allowedMethods());
 
 app.use((ctx) => {
 	ctx.status = 404;
