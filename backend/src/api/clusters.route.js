@@ -2,36 +2,49 @@ const Router = require("@koa/router");
 const Joi = require("joi");
 const {
 	createCluster,
+	deleteCluster,
+	getClusterById,
 	listClusters,
+	updateCluster,
 } = require("../service/clusterManager.service");
 
 const router = new Router();
 
+const apiUrlSchema = Joi.string()
+	.trim()
+	.uri({ scheme: ["http", "https"] })
+	.custom((value, helpers) => {
+		const url = new URL(value);
+
+		if (url.username !== "" || url.password !== "") {
+			return helpers.error("any.invalid");
+		}
+
+		return value;
+	});
+
+const nullableStringSchema = Joi.string().trim().allow(null).empty("");
+
 const createClusterSchema = Joi.object({
 	name: Joi.string().trim().required(),
-	apiUrl: Joi.string()
-		.trim()
-		.uri({ scheme: ["http", "https"] })
-		.required()
-		.custom((value, helpers) => {
-			const url = new URL(value);
-
-			if (url.username !== "" || url.password !== "") {
-				return helpers.error("any.invalid");
-			}
-
-			return value;
-		}),
-	defaultNamespace: Joi.string().trim().allow(null).empty("").default(null),
-	description: Joi.string().trim().allow(null).empty("").default(null),
+	apiUrl: apiUrlSchema.required(),
+	defaultNamespace: nullableStringSchema.default(null),
+	description: nullableStringSchema.default(null),
 });
+
+const updateClusterSchema = Joi.object({
+	name: Joi.string().trim(),
+	apiUrl: apiUrlSchema,
+	defaultNamespace: nullableStringSchema,
+	description: nullableStringSchema,
+}).min(1);
 
 router.get("/clusters", async (ctx) => {
 	ctx.body = { clusters: await listClusters() };
 });
 
 router.post("/clusters", async (ctx) => {
-	const validation = validateCreateCluster(ctx.request.body);
+	const validation = validateClusterInput(ctx.request.body, createClusterSchema);
 
 	if (!validation.valid) {
 		ctx.status = 400;
@@ -48,8 +61,58 @@ router.post("/clusters", async (ctx) => {
 	ctx.body = { cluster };
 });
 
-function validateCreateCluster(input) {
-	const { error, value } = createClusterSchema.validate(input, {
+router.get("/clusters/:clusterId", async (ctx) => {
+	const cluster = await getClusterById(parseClusterId(ctx.params.clusterId));
+
+	if (!cluster) {
+		ctx.status = 404;
+		ctx.body = { error: "Cluster not found" };
+		return;
+	}
+
+	ctx.body = { cluster };
+});
+
+router.patch("/clusters/:clusterId", async (ctx) => {
+	const validation = validateClusterInput(ctx.request.body, updateClusterSchema);
+
+	if (!validation.valid) {
+		ctx.status = 400;
+		ctx.body = {
+			error: "Invalid cluster input",
+			details: validation.errors,
+		};
+		return;
+	}
+
+	const cluster = await updateCluster(
+		parseClusterId(ctx.params.clusterId),
+		validation.value,
+	);
+
+	if (!cluster) {
+		ctx.status = 404;
+		ctx.body = { error: "Cluster not found" };
+		return;
+	}
+
+	ctx.body = { cluster };
+});
+
+router.delete("/clusters/:clusterId", async (ctx) => {
+	const deleted = await deleteCluster(parseClusterId(ctx.params.clusterId));
+
+	if (!deleted) {
+		ctx.status = 404;
+		ctx.body = { error: "Cluster not found" };
+		return;
+	}
+
+	ctx.status = 204;
+});
+
+function validateClusterInput(input, schema) {
+	const { error, value } = schema.validate(input, {
 		abortEarly: false,
 		stripUnknown: true,
 	});
@@ -70,6 +133,11 @@ function validateCreateCluster(input) {
 			return errors;
 		}, {}),
 	};
+}
+
+function parseClusterId(clusterId) {
+	const id = Number(clusterId);
+	return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 module.exports = router;
