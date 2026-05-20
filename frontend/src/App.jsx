@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { List } from "react-window";
 
+import { ClustersSidebar } from "@/components/clusters-sidebar";
 import {
 	AppShell,
 	ContentLayout,
@@ -493,6 +494,10 @@ function App() {
 	const [authStatusMessage, setAuthStatusMessage] = useState(
 		"Checking oc login...",
 	);
+	const [clusters, setClusters] = useState([]);
+	const [clustersError, setClustersError] = useState("");
+	const [isClustersLoading, setIsClustersLoading] = useState(true);
+	const [selectedClusterId, setSelectedClusterId] = useState(null);
 	const [namespaces, setNamespaces] = useState([]);
 	const [namespacesStatus, setNamespacesStatus] = useState(
 		"Loading projects...",
@@ -530,6 +535,52 @@ function App() {
 	const isManualLogFollowingPausedRef = useRef(false);
 	const logSearchRef = useRef("");
 	const activeSeverityFiltersRef = useRef([]);
+
+	const loadClusters = useCallback(async () => {
+		setIsClustersLoading(true);
+		setClustersError("");
+
+		try {
+			const response = await fetch(`${API_BASE_URL}/clusters`);
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				setClustersError(
+					data.details || data.error || "Unable to load clusters",
+				);
+				setClusters([]);
+				setSelectedClusterId(null);
+				return;
+			}
+
+			if (!Array.isArray(data.clusters)) {
+				setClustersError("Unexpected clusters response from backend");
+				setClusters([]);
+				setSelectedClusterId(null);
+				return;
+			}
+
+			setClusters(data.clusters);
+			setSelectedClusterId((currentClusterId) => {
+				if (
+					currentClusterId &&
+					data.clusters.some(
+						(cluster) => String(cluster.id) === String(currentClusterId),
+					)
+				) {
+					return currentClusterId;
+				}
+
+				return data.clusters[0]?.id ?? null;
+			});
+		} catch {
+			setClustersError("Unable to reach backend");
+			setClusters([]);
+			setSelectedClusterId(null);
+		} finally {
+			setIsClustersLoading(false);
+		}
+	}, []);
 
 	useEffect(() => {
 		const checkBackendHealth = async () => {
@@ -633,7 +684,8 @@ function App() {
 		checkBackendHealth();
 		checkAuthStatus();
 		loadNamespaces();
-	}, []);
+		void Promise.resolve().then(loadClusters);
+	}, [loadClusters]);
 
 	useEffect(() => {
 		if (!selectedNamespace) {
@@ -1378,7 +1430,15 @@ function App() {
 				}
 			/>
 			<PageContainer>
-				<ContentLayout>
+				<ContentLayout className="min-h-0 flex-1 lg:flex-row">
+					<ClustersSidebar
+						clusters={clusters}
+						error={clustersError}
+						isLoading={isClustersLoading}
+						onRefresh={loadClusters}
+						onSelectCluster={setSelectedClusterId}
+						selectedClusterId={selectedClusterId}
+					/>
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
 						<div>
 							{visibleLogLines.length > 0 ? (
