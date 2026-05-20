@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	Check,
+	ChevronDown,
 	Copy,
 	Download,
 	FileJson,
@@ -100,6 +102,145 @@ const AUTH_STATUS = {
 	OC_NOT_INSTALLED: "oc-not-installed",
 	ERROR: "error",
 };
+
+function SearchableSelector({
+	id,
+	options,
+	value,
+	status,
+	placeholder,
+	disabled = false,
+	ariaLabel,
+	onValueChange,
+	className = "",
+}) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [query, setQuery] = useState("");
+	const containerRef = useRef(null);
+	const inputRef = useRef(null);
+	const normalizedQuery = query.trim().toLowerCase();
+	const filteredOptions = options.filter((option) =>
+		option.toLowerCase().includes(normalizedQuery),
+	);
+	const displayValue = value || placeholder;
+
+	useEffect(() => {
+		if (!isOpen) {
+			return undefined;
+		}
+
+		const focusInput = window.setTimeout(() => inputRef.current?.focus(), 0);
+
+		const handlePointerDown = (event) => {
+			if (!containerRef.current?.contains(event.target)) {
+				setIsOpen(false);
+			}
+		};
+
+		const handleKeyDown = (event) => {
+			if (event.key === "Escape") {
+				setIsOpen(false);
+			}
+		};
+
+		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			window.clearTimeout(focusInput);
+			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [isOpen]);
+
+	const toggleOpen = () => {
+		setQuery("");
+		setIsOpen((currentValue) => !currentValue);
+	};
+
+	const selectValue = (nextValue) => {
+		onValueChange(nextValue);
+		setIsOpen(false);
+	};
+
+	return (
+		<div ref={containerRef} className={`relative min-w-0 flex-1 ${className}`}>
+			<button
+				type="button"
+				id={id}
+				disabled={disabled}
+				onClick={toggleOpen}
+				aria-label={ariaLabel}
+				aria-haspopup="listbox"
+				aria-expanded={isOpen}
+				title={value || status}
+				className="flex h-6 w-full items-center rounded-md border border-input/70 bg-background/70 px-2 pr-10 text-left text-xs text-foreground outline-none transition-colors focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+			>
+				<span
+					className={`min-w-0 flex-1 truncate ${
+						value ? "text-foreground" : "text-muted-foreground"
+					}`}
+				>
+					{displayValue}
+				</span>
+			</button>
+			{value && !disabled ? (
+				<button
+					type="button"
+					aria-label={`Clear ${ariaLabel}`}
+					title="Clear selection"
+					onClick={() => selectValue("")}
+					className="absolute right-5.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+				>
+					<X className="size-3" aria-hidden="true" />
+				</button>
+			) : null}
+			<ChevronDown
+				className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+				aria-hidden="true"
+			/>
+			{isOpen && !disabled ? (
+				<div className="absolute left-0 top-full z-50 mt-1 w-full min-w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-xl sm:w-96">
+					<input
+						ref={inputRef}
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+						placeholder="Type to filter..."
+						aria-label={`${ariaLabel} filter`}
+						className="mb-2 h-8 w-full rounded-md border border-input/70 bg-background px-2 text-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+					/>
+					<div
+						role="listbox"
+						aria-label={ariaLabel}
+						className="max-h-72 overflow-auto"
+					>
+						{filteredOptions.length > 0 ? (
+							filteredOptions.map((option) => (
+								<button
+									key={option}
+									type="button"
+									role="option"
+									aria-selected={option === value}
+									onClick={() => selectValue(option)}
+									className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-muted focus:bg-muted focus:outline-none"
+								>
+									<span className="min-w-0 flex-1 truncate">{option}</span>
+									{option === value ? (
+										<Check className="size-3 text-primary" aria-hidden="true" />
+									) : null}
+								</button>
+							))
+						) : (
+							<div className="px-2.5 py-3 text-xs text-muted-foreground">
+								No matches found.
+							</div>
+						)}
+					</div>
+				</div>
+			) : null}
+		</div>
+	);
+}
 
 function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
 	const normalizedLine = String(line ?? "");
@@ -356,19 +497,19 @@ function App() {
 	const [namespacesStatus, setNamespacesStatus] = useState(
 		"Loading projects...",
 	);
-	const [namespaceSearch, setNamespaceSearch] = useState("");
+	const [, setNamespaceSearch] = useState("");
 	const [selectedNamespace, setSelectedNamespace] = useState("");
 	const [deployments, setDeployments] = useState([]);
 	const [deploymentsStatus, setDeploymentsStatus] = useState(
 		"Select a project to load deployments",
 	);
-	const [deploymentSearch, setDeploymentSearch] = useState("");
+	const [, setDeploymentSearch] = useState("");
 	const [selectedDeployment, setSelectedDeployment] = useState("");
 	const [pods, setPods] = useState([]);
 	const [podsStatus, setPodsStatus] = useState(
 		"Select a deployment to load pods",
 	);
-	const [podSearch, setPodSearch] = useState("");
+	const [, setPodSearch] = useState("");
 	const [selectedPod, setSelectedPod] = useState("");
 	const [rawLogLines, setRawLogLines] = useState([]);
 	const [logSearch, setLogSearch] = useState("");
@@ -768,19 +909,10 @@ function App() {
 
 		scrollToLatestVisibleLog();
 	}, [filteredLogLines.length, logStreamUpdateCount, scrollToLatestVisibleLog]);
-	const filteredNamespaces = namespaces.filter((namespace) =>
-		namespace.toLowerCase().includes(namespaceSearch.toLowerCase()),
-	);
 	const deploymentNames = deployments
 		.map((deployment) => deployment.name)
 		.filter(Boolean);
-	const filteredDeploymentNames = deploymentNames.filter((deploymentName) =>
-		deploymentName.toLowerCase().includes(deploymentSearch.toLowerCase()),
-	);
 	const podNames = [...new Set(pods.map((pod) => pod.name).filter(Boolean))];
-	const filteredPodNames = podNames.filter((podName) =>
-		podName.toLowerCase().includes(podSearch.toLowerCase()),
-	);
 
 	const handleNamespaceChange = (event) => {
 		const value = event.target.value;
@@ -1060,74 +1192,49 @@ function App() {
 			/>
 			<SecondaryFilterToolbar
 				namespaceSearchControl={
-					<>
-						<input
-							id="namespace-selector"
-							list="namespace-options"
-							autoComplete="off"
-							value={namespaceSearch}
-							onChange={handleNamespaceChange}
-							placeholder="Search projects..."
-							aria-label="Search OpenShift projects or namespaces"
-							title={selectedNamespace || namespacesStatus}
-							className={toolbarInputClassName}
-						/>
-						<datalist id="namespace-options">
-							{filteredNamespaces.map((namespace) => (
-								<option key={namespace} value={namespace} />
-							))}
-						</datalist>
-					</>
+					<SearchableSelector
+						id="namespace-selector"
+						options={namespaces}
+						value={selectedNamespace}
+						status={namespacesStatus}
+						placeholder="Select project"
+						ariaLabel="Search OpenShift projects or namespaces"
+						onValueChange={(nextValue) =>
+							handleNamespaceChange({ target: { value: nextValue } })
+						}
+					/>
 				}
 				deploymentSearchControl={
-					<>
-						<input
-							id="deployment-selector"
-							list="deployment-options"
-							autoComplete="off"
-							value={deploymentSearch}
-							onChange={handleDeploymentChange}
-							placeholder={
-								selectedNamespace
-									? "Search deployments..."
-									: "Select a project first"
-							}
-							disabled={!selectedNamespace}
-							aria-label="Search deployments"
-							title={selectedDeployment || deploymentsStatus}
-							className={toolbarInputClassName}
-						/>
-						<datalist id="deployment-options">
-							{filteredDeploymentNames.map((deploymentName) => (
-								<option key={deploymentName} value={deploymentName} />
-							))}
-						</datalist>
-					</>
+					<SearchableSelector
+						id="deployment-selector"
+						options={deploymentNames}
+						value={selectedDeployment}
+						status={deploymentsStatus}
+						placeholder={
+							selectedNamespace ? "Select deployment" : "Select a project first"
+						}
+						disabled={!selectedNamespace}
+						ariaLabel="Search deployments"
+						onValueChange={(nextValue) =>
+							handleDeploymentChange({ target: { value: nextValue } })
+						}
+					/>
 				}
 				podSearchControl={
-					<>
-						<input
-							id="pod-selector"
-							list="pod-options"
-							autoComplete="off"
-							value={podSearch}
-							onChange={handlePodChange}
-							placeholder={
-								selectedDeployment
-									? "Search pods..."
-									: "Select a deployment first"
-							}
-							disabled={!selectedDeployment}
-							aria-label="Search pods"
-							title={selectedPod || podsStatus}
-							className={toolbarInputClassName}
-						/>
-						<datalist id="pod-options">
-							{filteredPodNames.map((podName) => (
-								<option key={podName} value={podName} />
-							))}
-						</datalist>
-					</>
+					<SearchableSelector
+						id="pod-selector"
+						options={podNames}
+						value={selectedPod}
+						status={podsStatus}
+						placeholder={
+							selectedDeployment ? "Select pod" : "Select a deployment first"
+						}
+						disabled={!selectedDeployment}
+						ariaLabel="Search pods"
+						onValueChange={(nextValue) =>
+							handlePodChange({ target: { value: nextValue } })
+						}
+					/>
 				}
 				searchControl={
 					<div className="flex min-w-0 flex-1 gap-1.5">
