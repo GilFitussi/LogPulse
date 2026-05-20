@@ -582,6 +582,41 @@ function App() {
 		}
 	}, []);
 
+	const createCluster = useCallback(
+		async (clusterInput) => {
+			const response = await fetch(`${API_BASE_URL}/clusters`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(clusterInput),
+			});
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				const details = data.details;
+				const detailsMessage =
+					details && typeof details === "object"
+						? Object.values(details).filter(Boolean).join(" ")
+						: details;
+
+				throw new Error(
+					detailsMessage || data.error || "Unable to create cluster",
+				);
+			}
+
+			if (!data.cluster) {
+				throw new Error("Unexpected create cluster response from backend");
+			}
+
+			await loadClusters();
+			setSelectedClusterId(data.cluster.id);
+
+			return data.cluster;
+		},
+		[loadClusters],
+	);
+
 	useEffect(() => {
 		const checkBackendHealth = async () => {
 			try {
@@ -1435,6 +1470,7 @@ function App() {
 						clusters={clusters}
 						error={clustersError}
 						isLoading={isClustersLoading}
+						onCreateCluster={createCluster}
 						onRefresh={loadClusters}
 						onSelectCluster={setSelectedClusterId}
 						selectedClusterId={selectedClusterId}
