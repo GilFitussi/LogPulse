@@ -98,8 +98,8 @@ describe("POST /clusters", () => {
 		expect(response.body).toEqual({
 			error: "Invalid cluster input",
 			details: {
-				name: "name is required",
-				apiUrl: "apiUrl is required",
+				name: "\"name\" is not allowed to be empty",
+				apiUrl: "\"apiUrl\" is required",
 			},
 		});
 		expect(createCluster).not.toHaveBeenCalled();
@@ -115,7 +115,8 @@ describe("POST /clusters", () => {
 		expect(response.body).toEqual({
 			error: "Invalid cluster input",
 			details: {
-				apiUrl: "apiUrl must be a valid http or https URL",
+				apiUrl:
+					"\"apiUrl\" must be a valid uri with a scheme matching the http|https pattern",
 			},
 		});
 		expect(createCluster).not.toHaveBeenCalled();

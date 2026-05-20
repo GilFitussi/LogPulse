@@ -8,35 +8,22 @@ const {
 const router = new Router();
 
 const createClusterSchema = Joi.object({
-	name: Joi.string().trim().required().messages({
-		"any.required": "name is required",
-		"string.base": "name is required",
-		"string.empty": "name is required",
-	}),
+	name: Joi.string().trim().required(),
 	apiUrl: Joi.string()
 		.trim()
+		.uri({ scheme: ["http", "https"] })
 		.required()
 		.custom((value, helpers) => {
-			if (!isValidApiUrl(value)) {
-				return helpers.error("apiUrl.invalid");
+			const url = new URL(value);
+
+			if (url.username !== "" || url.password !== "") {
+				return helpers.error("any.invalid");
 			}
 
 			return value;
-		})
-		.messages({
-			"any.required": "apiUrl is required",
-			"apiUrl.invalid": "apiUrl must be a valid http or https URL",
-			"string.base": "apiUrl is required",
-			"string.empty": "apiUrl is required",
 		}),
-	defaultNamespace: Joi.string().trim().allow(null).empty("").default(null).messages({
-		"string.base": "defaultNamespace must be a string",
-	}),
-	description: Joi.string().trim().allow(null).empty("").default(null).messages({
-		"string.base": "description must be a string",
-	}),
-}).messages({
-	"object.base": "Request body must be a JSON object",
+	defaultNamespace: Joi.string().trim().allow(null).empty("").default(null),
+	description: Joi.string().trim().allow(null).empty("").default(null),
 });
 
 router.get("/clusters", async (ctx) => {
@@ -115,20 +102,6 @@ function validateCreateCluster(input) {
 			return errors;
 		}, {}),
 	};
-}
-
-function isValidApiUrl(value) {
-	try {
-		const url = new URL(value);
-		return (
-			["http:", "https:"].includes(url.protocol) &&
-			Boolean(url.hostname) &&
-			url.username === "" &&
-			url.password === ""
-		);
-	} catch (_error) {
-		return false;
-	}
 }
 
 module.exports = router;
