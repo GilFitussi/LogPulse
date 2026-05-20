@@ -1,10 +1,43 @@
 const Router = require("@koa/router");
+const Joi = require("joi");
 const {
 	createCluster,
 	listClusters,
 } = require("../service/clusterManager.service");
 
 const router = new Router();
+
+const createClusterSchema = Joi.object({
+	name: Joi.string().trim().required().messages({
+		"any.required": "name is required",
+		"string.base": "name is required",
+		"string.empty": "name is required",
+	}),
+	apiUrl: Joi.string()
+		.trim()
+		.required()
+		.custom((value, helpers) => {
+			if (!isValidApiUrl(value)) {
+				return helpers.error("apiUrl.invalid");
+			}
+
+			return value;
+		})
+		.messages({
+			"any.required": "apiUrl is required",
+			"apiUrl.invalid": "apiUrl must be a valid http or https URL",
+			"string.base": "apiUrl is required",
+			"string.empty": "apiUrl is required",
+		}),
+	defaultNamespace: Joi.string().trim().allow(null).empty("").default(null).messages({
+		"string.base": "defaultNamespace must be a string",
+	}),
+	description: Joi.string().trim().allow(null).empty("").default(null).messages({
+		"string.base": "description must be a string",
+	}),
+}).messages({
+	"object.base": "Request body must be a JSON object",
+});
 
 router.get("/clusters", async (ctx) => {
 	ctx.body = { clusters: await listClusters() };
@@ -61,68 +94,27 @@ function readRequestBody(request) {
 }
 
 function validateCreateCluster(input) {
-	const errors = {};
+	const { error, value } = createClusterSchema.validate(input, {
+		abortEarly: false,
+		stripUnknown: true,
+	});
 
-	if (!input || typeof input !== "object" || Array.isArray(input)) {
-		return {
-			valid: false,
-			errors: { body: "Request body must be a JSON object" },
-		};
-	}
-
-	const name = validateRequiredString(input.name, "name", errors);
-	const apiUrl = validateRequiredString(input.apiUrl, "apiUrl", errors);
-	const defaultNamespace = validateOptionalString(
-		input.defaultNamespace,
-		"defaultNamespace",
-		errors,
-	);
-	const description = validateOptionalString(
-		input.description,
-		"description",
-		errors,
-	);
-
-	if (apiUrl && !isValidApiUrl(apiUrl)) {
-		errors.apiUrl = "apiUrl must be a valid http or https URL";
-	}
-
-	if (Object.keys(errors).length > 0) {
-		return { valid: false, errors };
+	if (!error) {
+		return { valid: true, value };
 	}
 
 	return {
-		valid: true,
-		value: {
-			name,
-			apiUrl,
-			defaultNamespace,
-			description,
-		},
+		valid: false,
+		errors: error.details.reduce((errors, detail) => {
+			const field = detail.path[0] || "body";
+
+			if (!errors[field]) {
+				errors[field] = detail.message;
+			}
+
+			return errors;
+		}, {}),
 	};
-}
-
-function validateRequiredString(value, field, errors) {
-	if (typeof value !== "string" || value.trim().length === 0) {
-		errors[field] = `${field} is required`;
-		return null;
-	}
-
-	return value.trim();
-}
-
-function validateOptionalString(value, field, errors) {
-	if (value === undefined || value === null) {
-		return null;
-	}
-
-	if (typeof value !== "string") {
-		errors[field] = `${field} must be a string`;
-		return null;
-	}
-
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : null;
 }
 
 function isValidApiUrl(value) {
@@ -140,5 +132,3 @@ function isValidApiUrl(value) {
 }
 
 module.exports = router;
-module.exports.validateCreateCluster = validateCreateCluster;
-module.exports.isValidApiUrl = isValidApiUrl;
