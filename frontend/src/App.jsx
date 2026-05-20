@@ -57,9 +57,6 @@ function formatLogEvent(data) {
 const LOG_SCROLL_BOTTOM_THRESHOLD = 48;
 const LOG_LIST_HEIGHT = 560;
 const LOG_ROW_HEIGHT = 22;
-const LOG_DENSITY_BUCKET_COUNT = 36;
-const LOG_DENSITY_MAX_BAR_HEIGHT = 16;
-const LOG_DENSITY_RECENT_LINE_COUNT = 1000;
 
 const severityFilterOptions = [
 	{
@@ -116,114 +113,6 @@ function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
 		namespace: selectedNamespace || "",
 		pod: selectedPod || "",
 	};
-}
-
-function getLogTimestampMs(line) {
-	const { timestamp } = parseLogLineMetadata(line, "", "");
-
-	if (!timestamp) {
-		return null;
-	}
-
-	const normalizedTimestamp = timestamp.includes("T")
-		? timestamp
-		: timestamp.replace(" ", "T");
-	const timestampMs = Date.parse(normalizedTimestamp);
-
-	return Number.isNaN(timestampMs) ? null : timestampMs;
-}
-
-function formatDensityBucketLabel(bucket, mode) {
-	if (
-		mode === "time" &&
-		bucket.startTimeMs !== null &&
-		bucket.endTimeMs !== null
-	) {
-		const startTime = new Date(bucket.startTimeMs).toLocaleTimeString();
-		const endTime = new Date(bucket.endTimeMs).toLocaleTimeString();
-
-		return `${startTime} - ${endTime}`;
-	}
-
-	return `Lines ${bucket.startIndex + 1}-${bucket.endIndex + 1}`;
-}
-
-function buildLogDensityBuckets(
-	logLines,
-	bucketCount = LOG_DENSITY_BUCKET_COUNT,
-	startIndexOffset = 0,
-) {
-	if (logLines.length === 0) {
-		return { buckets: [], mode: "index", lineCount: 0 };
-	}
-
-	const timestampedLines = logLines
-		.map((line, index) => ({
-			index: startIndexOffset + index,
-			timestampMs: getLogTimestampMs(line),
-		}))
-		.filter(({ timestampMs }) => timestampMs !== null)
-		.sort(
-			(firstLine, secondLine) => firstLine.timestampMs - secondLine.timestampMs,
-		);
-	const canUseTimeBuckets =
-		timestampedLines.length === logLines.length && timestampedLines.length >= 2;
-	const bucketsLength = Math.min(bucketCount, logLines.length);
-	const buckets = Array.from({ length: bucketsLength }, (_, bucketIndex) => ({
-		count: 0,
-		endIndex: startIndexOffset,
-		endTimeMs: null,
-		index: bucketIndex,
-		startIndex: startIndexOffset + logLines.length - 1,
-		startTimeMs: null,
-	}));
-
-	if (canUseTimeBuckets) {
-		const firstTimestampMs = timestampedLines[0].timestampMs;
-		const lastTimestampMs =
-			timestampedLines[timestampedLines.length - 1].timestampMs;
-		const timeRangeMs = Math.max(1, lastTimestampMs - firstTimestampMs);
-
-		timestampedLines.forEach(({ index, timestampMs }) => {
-			const bucketIndex = Math.min(
-				bucketsLength - 1,
-				Math.floor(
-					((timestampMs - firstTimestampMs) / timeRangeMs) * bucketsLength,
-				),
-			);
-			const bucket = buckets[bucketIndex];
-
-			bucket.count += 1;
-			bucket.startIndex = Math.min(bucket.startIndex, index);
-			bucket.endIndex = Math.max(bucket.endIndex, index);
-			bucket.startTimeMs =
-				bucket.startTimeMs === null
-					? timestampMs
-					: Math.min(bucket.startTimeMs, timestampMs);
-			bucket.endTimeMs =
-				bucket.endTimeMs === null
-					? timestampMs
-					: Math.max(bucket.endTimeMs, timestampMs);
-		});
-
-		return { buckets, mode: "time", lineCount: logLines.length };
-	}
-
-	logLines.forEach((_, index) => {
-		const bucketIndex = Math.min(
-			bucketsLength - 1,
-			Math.floor((index / logLines.length) * bucketsLength),
-		);
-		const bucket = buckets[bucketIndex];
-
-		bucket.count += 1;
-		const sourceIndex = startIndexOffset + index;
-
-		bucket.startIndex = Math.min(bucket.startIndex, sourceIndex);
-		bucket.endIndex = Math.max(bucket.endIndex, sourceIndex);
-	});
-
-	return { buckets, mode: "index", lineCount: logLines.length };
 }
 
 function parseStructuredJsonFromLogLine(line) {
@@ -454,72 +343,6 @@ function LogLineRow({
 				{renderHighlightedLogLine(message || line, logSearch)}
 			</span>
 		</button>
-	);
-}
-
-function LogDensityMap({ densityData, onBucketClick }) {
-	const maxBucketCount = Math.max(
-		1,
-		...densityData.buckets.map((bucket) => bucket.count),
-	);
-
-	return (
-		<div className="mt-1 space-y-1">
-			<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
-				<span>Recent log volume</span>
-				{densityData.lineCount > 0 ? (
-					<span>
-						Latest {densityData.lineCount.toLocaleString()} visible logs
-					</span>
-				) : null}
-			</div>
-			{densityData.buckets.length > 0 ? (
-				<div
-					className="flex h-4 w-full items-end gap-0.5 overflow-hidden rounded bg-muted/20 px-1 py-0.5 opacity-80"
-					aria-label="Recent log volume timeline, oldest to newest"
-				>
-					{densityData.buckets.map((bucket) => {
-						const barHeight = Math.max(
-							2,
-							Math.round(
-								(bucket.count / maxBucketCount) * LOG_DENSITY_MAX_BAR_HEIGHT,
-							),
-						);
-						const label = `${bucket.count} logs, ${formatDensityBucketLabel(
-							bucket,
-							densityData.mode,
-						)}`;
-
-						return (
-							<button
-								key={bucket.index}
-								type="button"
-								onClick={() => onBucketClick(bucket)}
-								disabled={bucket.count === 0}
-								className="flex min-w-0 flex-1 items-end justify-center rounded-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed"
-								aria-label={label}
-								title={label}
-							>
-								<span
-									className={`block w-full rounded-[1px] ${
-										bucket.count === maxBucketCount
-											? "bg-rose-500"
-											: bucket.count > 0
-												? "bg-sky-500"
-												: "bg-muted"
-									}`}
-									style={{ height: `${barHeight}px` }}
-								/>
-							</button>
-						);
-					})}
-				</div>
-			) : (
-				<p className="text-xs text-muted-foreground">
-					Log volume appears here after logs arrive.
-				</p>
-			)}
-		</div>
 	);
 }
 
@@ -876,18 +699,6 @@ function App() {
 		activeSeverityFilters,
 	);
 	const visibleLogLines = pausedVisibleLogLines ?? filteredLogLines;
-	const logDensityData = useMemo(() => {
-		const densityLogLines = filteredLogLines.slice(
-			-LOG_DENSITY_RECENT_LINE_COUNT,
-		);
-		const startIndexOffset = filteredLogLines.length - densityLogLines.length;
-
-		return buildLogDensityBuckets(
-			densityLogLines,
-			LOG_DENSITY_BUCKET_COUNT,
-			startIndexOffset,
-		);
-	}, [filteredLogLines]);
 	const logLinesStore = useMemo(() => {
 		const store = {};
 
@@ -1121,32 +932,6 @@ function App() {
 		isLogAutoScrollPausedRef.current = false;
 		setIsLogAutoScrollPaused(false);
 		setNewLogCountWhilePaused(0);
-	};
-
-	const jumpToDensityBucket = (bucket) => {
-		if (bucket.count === 0 || filteredLogLines.length === 0) {
-			return;
-		}
-
-		const targetIndex = Math.min(
-			filteredLogLines.length - 1,
-			Math.max(0, bucket.startIndex),
-		);
-
-		setPausedVisibleLogLines(filteredLogLines);
-		requestAnimationFrame(() => {
-			logListRef.current?.scrollToRow({
-				align: "start",
-				index: targetIndex,
-			});
-		});
-		setSelectedLogLine({
-			index: targetIndex,
-			line: filteredLogLines[targetIndex],
-		});
-		isManualLogFollowingPausedRef.current = true;
-		isLogAutoScrollPausedRef.current = true;
-		setIsLogAutoScrollPaused(true);
 	};
 
 	const clearLogSearch = () => {
@@ -1487,10 +1272,6 @@ function App() {
 			<PageContainer>
 				<ContentLayout>
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
-						<LogDensityMap
-							densityData={logDensityData}
-							onBucketClick={jumpToDensityBucket}
-						/>
 						<div>
 							{visibleLogLines.length > 0 ? (
 								<div className="relative mt-2">
