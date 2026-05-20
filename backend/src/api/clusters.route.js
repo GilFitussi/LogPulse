@@ -44,7 +44,10 @@ router.get("/clusters", async (ctx) => {
 });
 
 router.post("/clusters", async (ctx) => {
-	const validation = validateClusterInput(ctx.request.body, createClusterSchema);
+	const validation = validateClusterInput(
+		ctx.request.body,
+		createClusterSchema,
+	);
 
 	if (!validation.valid) {
 		ctx.status = 400;
@@ -74,7 +77,10 @@ router.get("/clusters/:clusterId", async (ctx) => {
 });
 
 router.patch("/clusters/:clusterId", async (ctx) => {
-	const validation = validateClusterInput(ctx.request.body, updateClusterSchema);
+	const validation = validateClusterInput(
+		ctx.request.body,
+		updateClusterSchema,
+	);
 
 	if (!validation.valid) {
 		ctx.status = 400;
