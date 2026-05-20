@@ -383,7 +383,7 @@ function App() {
 	const [isLogAutoScrollPaused, setIsLogAutoScrollPaused] = useState(false);
 	const [newLogCountWhilePaused, setNewLogCountWhilePaused] = useState(0);
 	const [logStreamUpdateCount, setLogStreamUpdateCount] = useState(0);
-	const [pausedVisibleLogLines, setPausedVisibleLogLines] = useState(null);
+	const [pausedRawLogLines, setPausedRawLogLines] = useState(null);
 	const logListRef = useRef(null);
 	const isLogAutoScrollPausedRef = useRef(false);
 	const isManualLogFollowingPausedRef = useRef(false);
@@ -693,12 +693,13 @@ function App() {
 		};
 	}, [appendReceivedLogLines, selectedNamespace, selectedPod]);
 
+	const visibleRawLogLines = pausedRawLogLines ?? rawLogLines;
 	const filteredLogLines = getFilteredLogLines(
-		rawLogLines,
+		visibleRawLogLines,
 		logSearch,
 		activeSeverityFilters,
 	);
-	const visibleLogLines = pausedVisibleLogLines ?? filteredLogLines;
+	const visibleLogLines = filteredLogLines;
 	const logLinesStore = useMemo(() => {
 		const store = {};
 
@@ -806,7 +807,7 @@ function App() {
 			setIncludeFilteredOutLogsForExport(false);
 			setLogTransferStatus("");
 			isManualLogFollowingPausedRef.current = false;
-			setPausedVisibleLogLines(null);
+			setPausedRawLogLines(null);
 			setIsLogAutoScrollPaused(false);
 			setNewLogCountWhilePaused(0);
 			setLogStatus("Select a project, deployment and pod to stream logs");
@@ -847,7 +848,7 @@ function App() {
 		setIncludeFilteredOutLogsForExport(false);
 		setLogTransferStatus("");
 		isManualLogFollowingPausedRef.current = false;
-		setPausedVisibleLogLines(null);
+		setPausedRawLogLines(null);
 		setIsLogAutoScrollPaused(false);
 		setNewLogCountWhilePaused(0);
 		setPodsStatus(
@@ -881,7 +882,7 @@ function App() {
 		setIncludeFilteredOutLogsForExport(false);
 		setLogTransferStatus("");
 		isManualLogFollowingPausedRef.current = false;
-		setPausedVisibleLogLines(null);
+		setPausedRawLogLines(null);
 		setIsLogAutoScrollPaused(false);
 		setNewLogCountWhilePaused(0);
 		setLogStatus(
@@ -907,13 +908,13 @@ function App() {
 		}
 
 		if (!isAtBottom && !isLogAutoScrollPaused) {
-			setPausedVisibleLogLines(filteredLogLines);
+			setPausedRawLogLines(rawLogLines);
 		}
 
 		setIsLogAutoScrollPaused(!isAtBottom);
 
 		if (isAtBottom) {
-			setPausedVisibleLogLines(null);
+			setPausedRawLogLines(null);
 			setNewLogCountWhilePaused(0);
 		}
 	};
@@ -921,12 +922,12 @@ function App() {
 	const pauseLogFollowing = () => {
 		isManualLogFollowingPausedRef.current = true;
 		isLogAutoScrollPausedRef.current = true;
-		setPausedVisibleLogLines(filteredLogLines);
+		setPausedRawLogLines(rawLogLines);
 		setIsLogAutoScrollPaused(true);
 	};
 
 	const jumpToLatestLog = () => {
-		setPausedVisibleLogLines(null);
+		setPausedRawLogLines(null);
 		scrollToLatestVisibleLog();
 		isManualLogFollowingPausedRef.current = false;
 		isLogAutoScrollPausedRef.current = false;
