@@ -1,6 +1,7 @@
 const Koa = require("koa");
 const Router = require("@koa/router");
 const cors = require("@koa/cors");
+const bodyParser = require("koa-bodyparser");
 const authRouter = require("./api/auth.route");
 const namespacesRouter = require("./api/namespaces.route");
 const logsRouter = require("./api/logs.route");
@@ -15,6 +16,13 @@ app.use(errorMiddleware);
 app.use(
 	cors({
 		origin: "http://localhost:5173",
+	}),
+);
+app.use(
+	bodyParser({
+		onerror(_error, ctx) {
+			ctx.throw(400, "Invalid JSON request body");
+		},
 	}),
 );
 

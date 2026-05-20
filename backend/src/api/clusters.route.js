@@ -31,8 +31,7 @@ router.get("/clusters", async (ctx) => {
 });
 
 router.post("/clusters", async (ctx) => {
-	const body = await readJsonBody(ctx);
-	const validation = validateCreateCluster(body);
+	const validation = validateCreateCluster(ctx.request.body);
 
 	if (!validation.valid) {
 		ctx.status = 400;
@@ -48,37 +47,6 @@ router.post("/clusters", async (ctx) => {
 	ctx.status = 201;
 	ctx.body = { cluster };
 });
-
-async function readJsonBody(ctx) {
-	if (ctx.request.body !== undefined) {
-		return ctx.request.body;
-	}
-
-	const rawBody = await readRequestBody(ctx.req);
-
-	if (rawBody.trim().length === 0) {
-		return {};
-	}
-
-	try {
-		return JSON.parse(rawBody);
-	} catch (_error) {
-		ctx.throw(400, "Invalid JSON request body");
-	}
-}
-
-function readRequestBody(request) {
-	return new Promise((resolve, reject) => {
-		let body = "";
-
-		request.setEncoding("utf8");
-		request.on("data", (chunk) => {
-			body += chunk;
-		});
-		request.on("end", () => resolve(body));
-		request.on("error", reject);
-	});
-}
 
 function validateCreateCluster(input) {
 	const { error, value } = createClusterSchema.validate(input, {
