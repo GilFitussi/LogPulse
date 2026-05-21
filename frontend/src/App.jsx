@@ -471,6 +471,102 @@ function splitLogLineForDisplay(line) {
 	};
 }
 
+function getWorkspaceStatusConfig(cluster) {
+	const normalizedStatus = String(
+		cluster?.lastConnectionStatus || "",
+	).toLowerCase();
+
+	if (
+		["connected", "success", "online", "ok", "healthy"].includes(
+			normalizedStatus,
+		)
+	) {
+		return {
+			label: "Connected",
+			className:
+				"bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+			dotClassName: "bg-emerald-500",
+		};
+	}
+
+	if (["error", "failed", "offline", "unhealthy"].includes(normalizedStatus)) {
+		return {
+			label: "Connection issue",
+			className: "bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
+			dotClassName: "bg-red-500",
+		};
+	}
+
+	if (["checking", "connecting", "pending"].includes(normalizedStatus)) {
+		return {
+			label: "Checking",
+			className: "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300",
+			dotClassName: "bg-sky-500",
+		};
+	}
+
+	return {
+		label: normalizedStatus ? "Logged out" : "Not checked",
+		className: "bg-muted text-muted-foreground ring-border",
+		dotClassName: "bg-muted-foreground/60",
+	};
+}
+
+function SelectedClusterWorkspaceHeader({ cluster }) {
+	if (!cluster) {
+		return (
+			<div className="mb-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2">
+				<p className="text-sm font-medium text-foreground">
+					No cluster workspace selected
+				</p>
+				<p className="mt-0.5 text-xs text-muted-foreground">
+					Select a cluster from the sidebar to make it the current workspace.
+				</p>
+			</div>
+		);
+	}
+
+	const statusConfig = getWorkspaceStatusConfig(cluster);
+	const statusDetail =
+		cluster.lastConnectionError ||
+		(cluster.lastConnectedAt
+			? `Last connected ${new Date(cluster.lastConnectedAt).toLocaleString()}`
+			: "No connection check recorded");
+
+	return (
+		<div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/60 px-3 py-2">
+			<div className="min-w-0">
+				<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					Current workspace
+				</p>
+				<h2 className="mt-0.5 truncate text-base font-semibold text-foreground">
+					{cluster.name}
+				</h2>
+				<p className="mt-0.5 truncate text-xs text-muted-foreground">
+					{cluster.apiUrl}
+				</p>
+			</div>
+			<div className="flex flex-wrap items-center gap-1.5 text-xs">
+				<span
+					className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 ring-1 ${statusConfig.className}`}
+					title={statusDetail}
+				>
+					<span
+						className={`size-1.5 rounded-full ${statusConfig.dotClassName}`}
+						aria-hidden="true"
+					/>
+					{statusConfig.label}
+				</span>
+				{cluster.defaultNamespace ? (
+					<span className="rounded-full bg-muted px-2 py-1 text-muted-foreground ring-1 ring-border">
+						Default namespace: {cluster.defaultNamespace}
+					</span>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
 function LogLineRow({
 	ariaAttributes,
 	index,
@@ -559,6 +655,33 @@ function App() {
 	const isManualLogFollowingPausedRef = useRef(false);
 	const logSearchRef = useRef("");
 	const activeSeverityFiltersRef = useRef([]);
+
+	const resetWorkspaceScope = useCallback((nextNamespace = "") => {
+		setNamespaceSearch(nextNamespace);
+		setSelectedNamespace(nextNamespace);
+		setDeployments([]);
+		setDeploymentSearch("");
+		setSelectedDeployment("");
+		setPods([]);
+		setPodSearch("");
+		setSelectedPod("");
+		setRawLogLines([]);
+		setActiveSeverityFilters([]);
+		setSelectedLogLine(null);
+		setIncludeFilteredOutLogsForExport(false);
+		setLogTransferStatus("");
+		isManualLogFollowingPausedRef.current = false;
+		setPausedRawLogLines(null);
+		setIsLogAutoScrollPaused(false);
+		setNewLogCountWhilePaused(0);
+		setDeploymentsStatus(
+			nextNamespace
+				? "Loading deployments..."
+				: "Select a project to load deployments",
+		);
+		setPodsStatus("Select a deployment to load pods");
+		setLogStatus("Select a project, deployment and pod to stream logs");
+	}, []);
 
 	const loadClusters = useCallback(async () => {
 		setIsClustersLoading(true);
@@ -1131,6 +1254,25 @@ function App() {
 		.map((deployment) => deployment.name)
 		.filter(Boolean);
 	const podNames = [...new Set(pods.map((pod) => pod.name).filter(Boolean))];
+	const selectedCluster = useMemo(
+		() =>
+			clusters.find(
+				(cluster) => String(cluster.id) === String(selectedClusterId),
+			) || null,
+		[clusters, selectedClusterId],
+	);
+
+	const handleSelectCluster = useCallback(
+		(clusterId) => {
+			const nextCluster =
+				clusters.find((cluster) => String(cluster.id) === String(clusterId)) ||
+				null;
+
+			setSelectedClusterId(nextCluster?.id ?? null);
+			resetWorkspaceScope(nextCluster?.defaultNamespace || "");
+		},
+		[clusters, resetWorkspaceScope],
+	);
 
 	const handleNamespaceChange = (event) => {
 		const value = event.target.value;
@@ -1414,8 +1556,15 @@ function App() {
 						id="namespace-selector"
 						options={namespaces}
 						value={selectedNamespace}
-						status={namespacesStatus}
-						placeholder="Select project"
+						status={
+							selectedCluster
+								? namespacesStatus
+								: "Select a cluster workspace first"
+						}
+						placeholder={
+							selectedCluster ? "Select project" : "Select a cluster first"
+						}
+						disabled={!selectedCluster}
 						ariaLabel="Search OpenShift projects or namespaces"
 						onValueChange={(nextValue) =>
 							handleNamespaceChange({ target: { value: nextValue } })
@@ -1606,12 +1755,13 @@ function App() {
 						onLoginCluster={loginToCluster}
 						onLogoutCluster={logoutFromCluster}
 						onRefresh={loadClusters}
-						onSelectCluster={setSelectedClusterId}
+						onSelectCluster={handleSelectCluster}
 						onUpdateCluster={updateCluster}
 						selectedClusterId={selectedClusterId}
 					/>
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
 						<div>
+							<SelectedClusterWorkspaceHeader cluster={selectedCluster} />
 							{visibleLogLines.length > 0 ? (
 								<div className="relative mt-2">
 									<List
