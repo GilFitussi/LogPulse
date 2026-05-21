@@ -4,6 +4,7 @@ import {
 	CheckCircle2,
 	Circle,
 	Edit3,
+	KeyRound,
 	LoaderCircle,
 	MoreHorizontal,
 	Plus,
@@ -291,6 +292,152 @@ function ClusterFormModal({
 	);
 }
 
+function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [username, setUsername] = useState("");
+	const [password, setPassword] = useState("");
+	const [error, setError] = useState("");
+	const [successMessage, setSuccessMessage] = useState("");
+	const [isSubmitting, setIsSubmitting] = useState(false);
+
+	const resetForm = () => {
+		setUsername("");
+		setPassword("");
+		setError("");
+		setSuccessMessage("");
+		setIsSubmitting(false);
+	};
+
+	const handleOpenChange = (nextOpen) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			resetForm();
+		}
+	};
+
+	const handleSubmit = async (event) => {
+		event.preventDefault();
+
+		const trimmedUsername = username.trim();
+
+		if (!trimmedUsername || !password) {
+			setError("Username and password are required.");
+			setSuccessMessage("");
+			return;
+		}
+
+		setIsSubmitting(true);
+		setError("");
+		setSuccessMessage("");
+
+		try {
+			const result = await onLoginCluster(cluster, {
+				username: trimmedUsername,
+				password,
+			});
+			const loggedInUser = result.username || trimmedUsername;
+
+			setPassword("");
+			setSuccessMessage(
+				`Logged in to ${cluster.name} as ${loggedInUser}. Connection status refreshed.`,
+			);
+		} catch (loginError) {
+			setError(loginError.message || "Unable to login to cluster.");
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
+	return (
+		<Dialog.Root open={isOpen} onOpenChange={handleOpenChange}>
+			<Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
+			<Dialog.Portal>
+				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
+					<div className="mb-4">
+						<Dialog.Title className="text-base font-semibold text-foreground">
+							Login to cluster
+						</Dialog.Title>
+						<Dialog.Description className="mt-1 text-sm text-muted-foreground">
+							Authenticate to {cluster.name} using oc login credentials.
+						</Dialog.Description>
+					</div>
+
+					<form className="space-y-3" onSubmit={handleSubmit}>
+						<div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground ring-1 ring-border/60">
+							<p className="font-medium text-foreground">{cluster.name}</p>
+							<p className="mt-0.5 truncate">{cluster.apiUrl}</p>
+						</div>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>Username</span>
+							<input
+								value={username}
+								onChange={(event) => {
+									setUsername(event.target.value);
+									setError("");
+									setSuccessMessage("");
+								}}
+								autoComplete="username"
+								disabled={isSubmitting}
+								placeholder="OpenShift username"
+								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+							/>
+						</label>
+						<label className="block space-y-1.5 text-sm font-medium text-foreground">
+							<span>Password</span>
+							<input
+								value={password}
+								onChange={(event) => {
+									setPassword(event.target.value);
+									setError("");
+									setSuccessMessage("");
+								}}
+								autoComplete="current-password"
+								disabled={isSubmitting}
+								type="password"
+								placeholder="OpenShift password"
+								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+							/>
+						</label>
+
+						{isSubmitting ? (
+							<p className="flex items-center gap-2 rounded-md bg-sky-500/10 px-3 py-2 text-sm text-sky-700 ring-1 ring-sky-500/20 dark:text-sky-300">
+								<LoaderCircle
+									className="size-4 animate-spin"
+									aria-hidden="true"
+								/>
+								Logging in and refreshing cluster status...
+							</p>
+						) : null}
+						{error ? (
+							<p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive ring-1 ring-destructive/20">
+								{error}
+							</p>
+						) : null}
+						{successMessage ? (
+							<p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+								{successMessage}
+							</p>
+						) : null}
+
+						<div className="flex justify-end gap-2 pt-2">
+							<Dialog.Close asChild>
+								<Button type="button" variant="outline" disabled={isSubmitting}>
+									{successMessage ? "Close" : "Cancel"}
+								</Button>
+							</Dialog.Close>
+							<Button type="submit" disabled={isSubmitting}>
+								{isSubmitting ? "Logging in..." : "Login"}
+							</Button>
+						</div>
+					</form>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
 function DeleteClusterDialog({ cluster, onDeleteCluster }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [error, setError] = useState("");
@@ -374,6 +521,7 @@ export function ClustersSidebar({
 	isLoading,
 	onCreateCluster,
 	onDeleteCluster,
+	onLoginCluster,
 	onRefresh,
 	onSelectCluster,
 	onUpdateCluster,
@@ -510,6 +658,23 @@ export function ClustersSidebar({
 												</ToolbarButton>
 											</DropdownMenuTrigger>
 											<DropdownMenuContent>
+												{onLoginCluster ? (
+													<ClusterLoginModal
+														cluster={cluster}
+														onLoginCluster={onLoginCluster}
+														trigger={
+															<DropdownMenuItem
+																onSelect={(event) => event.preventDefault()}
+															>
+																<KeyRound
+																	className="size-3.5"
+																	aria-hidden="true"
+																/>
+																Login
+															</DropdownMenuItem>
+														}
+													/>
+												) : null}
 												<ClusterFormModal
 													cluster={cluster}
 													mode="edit"
