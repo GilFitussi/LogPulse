@@ -294,18 +294,28 @@ function ClusterFormModal({
 
 function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 	const [isOpen, setIsOpen] = useState(false);
+	const [loginMethod, setLoginMethod] = useState("credentials");
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
+	const [token, setToken] = useState("");
 	const [error, setError] = useState("");
 	const [successMessage, setSuccessMessage] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const isTokenLogin = loginMethod === "token";
 
 	const resetForm = () => {
+		setLoginMethod("credentials");
 		setUsername("");
 		setPassword("");
+		setToken("");
 		setError("");
 		setSuccessMessage("");
 		setIsSubmitting(false);
+	};
+
+	const clearMessages = () => {
+		setError("");
+		setSuccessMessage("");
 	};
 
 	const handleOpenChange = (nextOpen) => {
@@ -320,9 +330,14 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 		event.preventDefault();
 
 		const trimmedUsername = username.trim();
+		const trimmedToken = token.trim();
 
-		if (!trimmedUsername || !password) {
-			setError("Username and password are required.");
+		if (isTokenLogin ? !trimmedToken : !trimmedUsername || !password) {
+			setError(
+				isTokenLogin
+					? "OpenShift token is required."
+					: "Username and password are required.",
+			);
 			setSuccessMessage("");
 			return;
 		}
@@ -332,13 +347,20 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 		setSuccessMessage("");
 
 		try {
-			const result = await onLoginCluster(cluster, {
-				username: trimmedUsername,
-				password,
-			});
-			const loggedInUser = result.username || trimmedUsername;
+			const result = await onLoginCluster(
+				cluster,
+				isTokenLogin
+					? { loginMethod: "token", token: trimmedToken }
+					: {
+							loginMethod: "credentials",
+							username: trimmedUsername,
+							password,
+						},
+			);
+			const loggedInUser = result.username || trimmedUsername || "token user";
 
 			setPassword("");
+			setToken("");
 			setSuccessMessage(
 				`Logged in to ${cluster.name} as ${loggedInUser}. Connection status refreshed.`,
 			);
@@ -354,13 +376,14 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 			<Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
 			<Dialog.Portal>
 				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
-				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
 					<div className="mb-4">
 						<Dialog.Title className="text-base font-semibold text-foreground">
 							Login to cluster
 						</Dialog.Title>
 						<Dialog.Description className="mt-1 text-sm text-muted-foreground">
-							Authenticate to {cluster.name} using oc login credentials.
+							Authenticate to {cluster.name} with username/password or an
+							OpenShift token.
 						</Dialog.Description>
 					</div>
 
@@ -369,37 +392,88 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 							<p className="font-medium text-foreground">{cluster.name}</p>
 							<p className="mt-0.5 truncate">{cluster.apiUrl}</p>
 						</div>
-						<label className="block space-y-1.5 text-sm font-medium text-foreground">
-							<span>Username</span>
-							<input
-								value={username}
-								onChange={(event) => {
-									setUsername(event.target.value);
-									setError("");
-									setSuccessMessage("");
-								}}
-								autoComplete="username"
-								disabled={isSubmitting}
-								placeholder="OpenShift username"
-								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							/>
-						</label>
-						<label className="block space-y-1.5 text-sm font-medium text-foreground">
-							<span>Password</span>
-							<input
-								value={password}
-								onChange={(event) => {
-									setPassword(event.target.value);
-									setError("");
-									setSuccessMessage("");
-								}}
-								autoComplete="current-password"
-								disabled={isSubmitting}
-								type="password"
-								placeholder="OpenShift password"
-								className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-							/>
-						</label>
+						<div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-1 text-sm ring-1 ring-border/60">
+							{[
+								["credentials", "Username/password"],
+								["token", "Token"],
+							].map(([value, label]) => (
+								<label
+									key={value}
+									className={`flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-2 font-medium transition-colors ${
+										loginMethod === value
+											? "bg-background text-foreground shadow-sm"
+											: "text-muted-foreground hover:text-foreground"
+									}`}
+								>
+									<input
+										type="radio"
+										name="cluster-login-method"
+										value={value}
+										checked={loginMethod === value}
+										onChange={(event) => {
+											setLoginMethod(event.target.value);
+											clearMessages();
+										}}
+										disabled={isSubmitting}
+										className="sr-only"
+									/>
+									{label}
+								</label>
+							))}
+						</div>
+						{isTokenLogin ? (
+							<label className="block space-y-1.5 text-sm font-medium text-foreground">
+								<span>OpenShift token</span>
+								<textarea
+									value={token}
+									onChange={(event) => {
+										setToken(event.target.value);
+										clearMessages();
+									}}
+									autoComplete="off"
+									disabled={isSubmitting}
+									placeholder="sha256~..."
+									rows={3}
+									className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+								/>
+								<span className="text-xs font-normal text-muted-foreground">
+									Get this from OpenShift Console → Copy login command → Display
+									Token.
+								</span>
+							</label>
+						) : (
+							<>
+								<label className="block space-y-1.5 text-sm font-medium text-foreground">
+									<span>Username</span>
+									<input
+										value={username}
+										onChange={(event) => {
+											setUsername(event.target.value);
+											clearMessages();
+										}}
+										autoComplete="username"
+										disabled={isSubmitting}
+										placeholder="OpenShift username"
+										className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+									/>
+								</label>
+								<label className="block space-y-1.5 text-sm font-medium text-foreground">
+									<span>Password</span>
+									<input
+										value={password}
+										onChange={(event) => {
+											setPassword(event.target.value);
+											clearMessages();
+										}}
+										autoComplete="current-password"
+										disabled={isSubmitting}
+										type="password"
+										placeholder="OpenShift password"
+										className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+									/>
+								</label>
+							</>
+						)}
 
 						{isSubmitting ? (
 							<p className="flex items-center gap-2 rounded-md bg-sky-500/10 px-3 py-2 text-sm text-sky-700 ring-1 ring-sky-500/20 dark:text-sky-300">

@@ -268,8 +268,34 @@ describe("POST /clusters/:clusterId/login", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ cluster, username: "developer" });
 		expect(loginToCluster).toHaveBeenCalledWith(1, {
+			loginMethod: "credentials",
 			username: "developer",
 			password: "secret",
+		});
+	});
+
+	it("logs in to a cluster with an OpenShift token", async () => {
+		const cluster = {
+			id: 1,
+			name: "Dev",
+			apiUrl: "https://api.dev.example.com:6443",
+			lastConnectionStatus: "connected",
+			lastConnectionError: null,
+		};
+		loginToCluster.mockResolvedValue({
+			username: "token-user",
+			cluster,
+		});
+
+		const response = await request(app.callback())
+			.post("/clusters/1/login")
+			.send({ loginMethod: "token", token: " sha256~secret-token " });
+
+		expect(response.status).toBe(200);
+		expect(response.body).toEqual({ cluster, username: "token-user" });
+		expect(loginToCluster).toHaveBeenCalledWith(1, {
+			loginMethod: "token",
+			token: "sha256~secret-token",
 		});
 	});
 
@@ -291,6 +317,7 @@ describe("POST /clusters/:clusterId/login", () => {
 			code: "CLUSTER_NOT_FOUND",
 		});
 		expect(loginToCluster).toHaveBeenCalledWith(999, {
+			loginMethod: "credentials",
 			username: "developer",
 			password: "secret",
 		});
@@ -343,6 +370,21 @@ describe("POST /clusters/:clusterId/login", () => {
 			details: {
 				username: '"username" is not allowed to be empty',
 				password: '"password" is required',
+			},
+		});
+		expect(loginToCluster).not.toHaveBeenCalled();
+	});
+
+	it("rejects missing token", async () => {
+		const response = await request(app.callback())
+			.post("/clusters/1/login")
+			.send({ loginMethod: "token", token: "" });
+
+		expect(response.status).toBe(400);
+		expect(response.body).toEqual({
+			error: "Invalid login input",
+			details: {
+				token: '"token" is not allowed to be empty',
 			},
 		});
 		expect(loginToCluster).not.toHaveBeenCalled();

@@ -41,14 +41,7 @@ async function loginToCluster(clusterId, credentials) {
 
 	try {
 		await runOcCommand(
-			[
-				"login",
-				cluster.apiUrl,
-				"--username",
-				credentials.username,
-				"--password",
-				credentials.password,
-			],
+			buildLoginArgs(cluster.apiUrl, credentials),
 			commandOptions,
 		);
 
@@ -99,13 +92,28 @@ async function loginToCluster(clusterId, credentials) {
 function sanitizeOcError(message, credentials) {
 	let sanitized = message || "oc login failed";
 
-	for (const secret of [credentials?.password]) {
+	for (const secret of [credentials?.password, credentials?.token]) {
 		if (typeof secret === "string" && secret.length > 0) {
 			sanitized = sanitized.split(secret).join("[redacted]");
 		}
 	}
 
 	return sanitized;
+}
+
+function buildLoginArgs(apiUrl, credentials) {
+	if (credentials?.loginMethod === "token") {
+		return ["login", apiUrl, "--token", credentials.token];
+	}
+
+	return [
+		"login",
+		apiUrl,
+		"--username",
+		credentials.username,
+		"--password",
+		credentials.password,
+	];
 }
 
 module.exports = {

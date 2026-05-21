@@ -88,6 +88,52 @@ describe("cluster oc login service", () => {
 		});
 	});
 
+	it("runs oc login with an OpenShift token", async () => {
+		const cluster = {
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		};
+		const updatedCluster = {
+			...cluster,
+			lastConnectionStatus: LOGIN_STATUS_CONNECTED,
+			lastConnectionError: null,
+		};
+		getClusterById.mockResolvedValue(cluster);
+		runOcCommand
+			.mockResolvedValueOnce({ stdout: "", stderr: "" })
+			.mockResolvedValueOnce({ stdout: "token-user\n", stderr: "" });
+		updateClusterConnectionStatus.mockResolvedValue(updatedCluster);
+
+		const result = await loginToCluster(1, {
+			loginMethod: "token",
+			token: "sha256~secret-token",
+		});
+
+		expect(result).toEqual({
+			username: "token-user",
+			cluster: updatedCluster,
+		});
+		expect(runOcCommand).toHaveBeenNthCalledWith(
+			1,
+			[
+				"login",
+				"https://api.dev.example.com:6443",
+				"--token",
+				"sha256~secret-token",
+			],
+			expect.objectContaining({
+				env: expect.objectContaining({
+					KUBECONFIG: expect.stringContaining("config"),
+				}),
+			}),
+		);
+		expect(runOcCommand).toHaveBeenNthCalledWith(
+			2,
+			["whoami"],
+			expect.any(Object),
+		);
+	});
+
 	it("updates only connection fields when oc login fails and redacts the password", async () => {
 		const cluster = {
 			id: 1,
@@ -130,6 +176,40 @@ describe("cluster oc login service", () => {
 				token: expect.any(String),
 			}),
 		);
+	});
+
+	it("redacts token login failures", async () => {
+		const cluster = {
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		};
+		const error = new Error("Command failed");
+		error.stderr = "Invalid token sha256~secret-token";
+		const updatedCluster = {
+			...cluster,
+			lastConnectionStatus: LOGIN_STATUS_FAILED,
+			lastConnectionError: "Invalid token [redacted]",
+		};
+		getClusterById.mockResolvedValue(cluster);
+		runOcCommand.mockRejectedValue(error);
+		updateClusterConnectionStatus.mockResolvedValue(updatedCluster);
+
+		await expect(
+			loginToCluster(1, {
+				loginMethod: "token",
+				token: "sha256~secret-token",
+			}),
+		).rejects.toMatchObject({
+			message: "Cluster login failed",
+			status: 401,
+			details: {
+				message: "Invalid token [redacted]",
+				cluster: updatedCluster,
+			},
+		});
+		expect(
+			JSON.stringify(updateClusterConnectionStatus.mock.calls),
+		).not.toContain("sha256~secret-token");
 	});
 
 	it("throws an app error without running oc when the cluster is missing", async () => {
