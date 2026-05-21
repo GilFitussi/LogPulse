@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	Check,
-	ChevronDown,
 	Copy,
 	Download,
 	FileJson,
@@ -126,145 +124,6 @@ function getClusterApiErrorMessage(data, fallbackMessage) {
 	}
 
 	return data.error || fallbackMessage;
-}
-
-function SearchableSelector({
-	id,
-	options,
-	value,
-	status,
-	placeholder,
-	disabled = false,
-	ariaLabel,
-	onValueChange,
-	className = "",
-}) {
-	const [isOpen, setIsOpen] = useState(false);
-	const [query, setQuery] = useState("");
-	const containerRef = useRef(null);
-	const inputRef = useRef(null);
-	const normalizedQuery = query.trim().toLowerCase();
-	const filteredOptions = options.filter((option) =>
-		option.toLowerCase().includes(normalizedQuery),
-	);
-	const displayValue = value || placeholder;
-
-	useEffect(() => {
-		if (!isOpen) {
-			return undefined;
-		}
-
-		const focusInput = window.setTimeout(() => inputRef.current?.focus(), 0);
-
-		const handlePointerDown = (event) => {
-			if (!containerRef.current?.contains(event.target)) {
-				setIsOpen(false);
-			}
-		};
-
-		const handleKeyDown = (event) => {
-			if (event.key === "Escape") {
-				setIsOpen(false);
-			}
-		};
-
-		document.addEventListener("pointerdown", handlePointerDown);
-		document.addEventListener("keydown", handleKeyDown);
-
-		return () => {
-			window.clearTimeout(focusInput);
-			document.removeEventListener("pointerdown", handlePointerDown);
-			document.removeEventListener("keydown", handleKeyDown);
-		};
-	}, [isOpen]);
-
-	const toggleOpen = () => {
-		setQuery("");
-		setIsOpen((currentValue) => !currentValue);
-	};
-
-	const selectValue = (nextValue) => {
-		onValueChange(nextValue);
-		setIsOpen(false);
-	};
-
-	return (
-		<div ref={containerRef} className={`relative min-w-0 flex-1 ${className}`}>
-			<button
-				type="button"
-				id={id}
-				disabled={disabled}
-				onClick={toggleOpen}
-				aria-label={ariaLabel}
-				aria-haspopup="listbox"
-				aria-expanded={isOpen}
-				title={value || status}
-				className="flex h-6 w-full items-center rounded-md border border-input/70 bg-background/70 px-2 pr-10 text-left text-xs text-foreground outline-none transition-colors focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-			>
-				<span
-					className={`min-w-0 flex-1 truncate ${
-						value ? "text-foreground" : "text-muted-foreground"
-					}`}
-				>
-					{displayValue}
-				</span>
-			</button>
-			{value && !disabled ? (
-				<button
-					type="button"
-					aria-label={`Clear ${ariaLabel}`}
-					title="Clear selection"
-					onClick={() => selectValue("")}
-					className="absolute right-5.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-				>
-					<X className="size-3" aria-hidden="true" />
-				</button>
-			) : null}
-			<ChevronDown
-				className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
-				aria-hidden="true"
-			/>
-			{isOpen && !disabled ? (
-				<div className="absolute left-0 top-full z-50 mt-1 w-full min-w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-xl sm:w-96">
-					<input
-						ref={inputRef}
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						placeholder="Type to filter..."
-						aria-label={`${ariaLabel} filter`}
-						className="mb-2 h-8 w-full rounded-md border border-input/70 bg-background px-2 text-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-					/>
-					<div
-						role="listbox"
-						aria-label={ariaLabel}
-						className="max-h-72 overflow-auto"
-					>
-						{filteredOptions.length > 0 ? (
-							filteredOptions.map((option) => (
-								<button
-									key={option}
-									type="button"
-									role="option"
-									aria-selected={option === value}
-									onClick={() => selectValue(option)}
-									className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-muted focus:bg-muted focus:outline-none"
-								>
-									<span className="min-w-0 flex-1 truncate">{option}</span>
-									{option === value ? (
-										<Check className="size-3 text-primary" aria-hidden="true" />
-									) : null}
-								</button>
-							))
-						) : (
-							<div className="px-2.5 py-3 text-xs text-muted-foreground">
-								No matches found.
-							</div>
-						)}
-					</div>
-				</div>
-			) : null}
-		</div>
-	);
 }
 
 function parseLogLineMetadata(line, selectedNamespace, selectedPod) {
@@ -618,23 +477,16 @@ function App() {
 	const [clustersError, setClustersError] = useState("");
 	const [isClustersLoading, setIsClustersLoading] = useState(true);
 	const [selectedClusterId, setSelectedClusterId] = useState(null);
-	const [namespaces, setNamespaces] = useState([]);
-	const [namespacesStatus, setNamespacesStatus] = useState(
-		"Loading projects...",
-	);
-	const [, setNamespaceSearch] = useState("");
+	const [, setNamespaces] = useState([]);
+	const [, setNamespacesStatus] = useState("Loading projects...");
 	const [selectedNamespace, setSelectedNamespace] = useState("");
-	const [deployments, setDeployments] = useState([]);
-	const [deploymentsStatus, setDeploymentsStatus] = useState(
+	const [, setDeployments] = useState([]);
+	const [, setDeploymentsStatus] = useState(
 		"Select a project to load deployments",
 	);
-	const [, setDeploymentSearch] = useState("");
 	const [selectedDeployment, setSelectedDeployment] = useState("");
-	const [pods, setPods] = useState([]);
-	const [podsStatus, setPodsStatus] = useState(
-		"Select a deployment to load pods",
-	);
-	const [, setPodSearch] = useState("");
+	const [, setPods] = useState([]);
+	const [, setPodsStatus] = useState("Select a deployment to load pods");
 	const [selectedPod, setSelectedPod] = useState("");
 	const [rawLogLines, setRawLogLines] = useState([]);
 	const [logSearch, setLogSearch] = useState("");
@@ -657,13 +509,10 @@ function App() {
 	const activeSeverityFiltersRef = useRef([]);
 
 	const resetWorkspaceScope = useCallback((nextNamespace = "") => {
-		setNamespaceSearch(nextNamespace);
 		setSelectedNamespace(nextNamespace);
 		setDeployments([]);
-		setDeploymentSearch("");
 		setSelectedDeployment("");
 		setPods([]);
-		setPodSearch("");
 		setSelectedPod("");
 		setRawLogLines([]);
 		setActiveSeverityFilters([]);
@@ -1250,10 +1099,6 @@ function App() {
 
 		scrollToLatestVisibleLog();
 	}, [filteredLogLines.length, logStreamUpdateCount, scrollToLatestVisibleLog]);
-	const deploymentNames = deployments
-		.map((deployment) => deployment.name)
-		.filter(Boolean);
-	const podNames = [...new Set(pods.map((pod) => pod.name).filter(Boolean))];
 	const selectedCluster = useMemo(
 		() =>
 			clusters.find(
@@ -1273,116 +1118,6 @@ function App() {
 		},
 		[clusters, resetWorkspaceScope],
 	);
-
-	const handleNamespaceChange = (event) => {
-		const value = event.target.value;
-		const nextNamespace = namespaces.includes(value) ? value : null;
-
-		setNamespaceSearch(value);
-
-		if (nextNamespace === null && value !== "") {
-			return;
-		}
-
-		const resolvedNamespace = nextNamespace || "";
-
-		if (resolvedNamespace !== selectedNamespace) {
-			setDeployments([]);
-			setDeploymentSearch("");
-			setSelectedDeployment("");
-			setPods([]);
-			setPodSearch("");
-			setSelectedPod("");
-			setRawLogLines([]);
-			setActiveSeverityFilters([]);
-			setSelectedLogLine(null);
-			setIncludeFilteredOutLogsForExport(false);
-			setLogTransferStatus("");
-			isManualLogFollowingPausedRef.current = false;
-			setPausedRawLogLines(null);
-			setIsLogAutoScrollPaused(false);
-			setNewLogCountWhilePaused(0);
-			setLogStatus("Select a project, deployment and pod to stream logs");
-			setDeploymentsStatus(
-				resolvedNamespace
-					? "Loading deployments..."
-					: "Select a project to load deployments",
-			);
-			setPodsStatus("Select a deployment to load pods");
-		}
-
-		setSelectedNamespace(resolvedNamespace);
-	};
-
-	const handleDeploymentChange = (event) => {
-		const value = event.target.value;
-		const nextDeployment = deploymentNames.includes(value) ? value : null;
-
-		setDeploymentSearch(value);
-
-		if (nextDeployment === null && value !== "") {
-			return;
-		}
-
-		const resolvedDeployment = nextDeployment || "";
-
-		if (resolvedDeployment === selectedDeployment) {
-			return;
-		}
-
-		setSelectedDeployment(resolvedDeployment);
-		setPods([]);
-		setPodSearch("");
-		setSelectedPod("");
-		setRawLogLines([]);
-		setActiveSeverityFilters([]);
-		setSelectedLogLine(null);
-		setIncludeFilteredOutLogsForExport(false);
-		setLogTransferStatus("");
-		isManualLogFollowingPausedRef.current = false;
-		setPausedRawLogLines(null);
-		setIsLogAutoScrollPaused(false);
-		setNewLogCountWhilePaused(0);
-		setPodsStatus(
-			resolvedDeployment
-				? "Loading pods..."
-				: "Select a deployment to load pods",
-		);
-		setLogStatus("Select a project, deployment and pod to stream logs");
-	};
-
-	const handlePodChange = (event) => {
-		const value = event.target.value;
-		const nextPod = podNames.includes(value) ? value : null;
-
-		setPodSearch(value);
-
-		if (nextPod === null && value !== "") {
-			return;
-		}
-
-		const resolvedPod = nextPod || "";
-
-		if (resolvedPod === selectedPod) {
-			return;
-		}
-
-		setSelectedPod(resolvedPod);
-		setRawLogLines([]);
-		setActiveSeverityFilters([]);
-		setSelectedLogLine(null);
-		setIncludeFilteredOutLogsForExport(false);
-		setLogTransferStatus("");
-		isManualLogFollowingPausedRef.current = false;
-		setPausedRawLogLines(null);
-		setIsLogAutoScrollPaused(false);
-		setNewLogCountWhilePaused(0);
-		setLogStatus(
-			resolvedPod
-				? "Connecting to log stream..."
-				: "Select a project, deployment and pod to stream logs",
-		);
-	};
 
 	const handleLogViewerScroll = () => {
 		const logViewer = logListRef.current?.element;
@@ -1551,58 +1286,6 @@ function App() {
 				newLogsAvailable={hasNewLogsWhilePaused}
 			/>
 			<SecondaryFilterToolbar
-				namespaceSearchControl={
-					<SearchableSelector
-						id="namespace-selector"
-						options={namespaces}
-						value={selectedNamespace}
-						status={
-							selectedCluster
-								? namespacesStatus
-								: "Select a cluster workspace first"
-						}
-						placeholder={
-							selectedCluster ? "Select project" : "Select a cluster first"
-						}
-						disabled={!selectedCluster}
-						ariaLabel="Search OpenShift projects or namespaces"
-						onValueChange={(nextValue) =>
-							handleNamespaceChange({ target: { value: nextValue } })
-						}
-					/>
-				}
-				deploymentSearchControl={
-					<SearchableSelector
-						id="deployment-selector"
-						options={deploymentNames}
-						value={selectedDeployment}
-						status={deploymentsStatus}
-						placeholder={
-							selectedNamespace ? "Select deployment" : "Select a project first"
-						}
-						disabled={!selectedNamespace}
-						ariaLabel="Search deployments"
-						onValueChange={(nextValue) =>
-							handleDeploymentChange({ target: { value: nextValue } })
-						}
-					/>
-				}
-				podSearchControl={
-					<SearchableSelector
-						id="pod-selector"
-						options={podNames}
-						value={selectedPod}
-						status={podsStatus}
-						placeholder={
-							selectedDeployment ? "Select pod" : "Select a deployment first"
-						}
-						disabled={!selectedDeployment}
-						ariaLabel="Search pods"
-						onValueChange={(nextValue) =>
-							handlePodChange({ target: { value: nextValue } })
-						}
-					/>
-				}
 				searchControl={
 					<div className="flex min-w-0 flex-1 gap-1.5">
 						<ToolbarSearchContainer>

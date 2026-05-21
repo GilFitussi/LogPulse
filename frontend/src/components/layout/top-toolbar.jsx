@@ -1,12 +1,9 @@
 import {
 	Activity,
 	AlertCircle,
-	Boxes,
 	CheckCircle2,
-	Database,
 	LoaderCircle,
 	Search,
-	Server,
 	ShieldAlert,
 	Terminal,
 } from "lucide-react";
@@ -170,9 +167,6 @@ export function TopToolbar({
 }
 
 export function SecondaryFilterToolbar({
-	namespaceSearchControl,
-	deploymentSearchControl,
-	podSearchControl,
 	searchControl,
 	severityFilterControls,
 	utilityActions,
@@ -180,30 +174,6 @@ export function SecondaryFilterToolbar({
 	return (
 		<div className="sticky top-12 z-20 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 			<div className="mx-auto flex w-full max-w-[96rem] flex-col gap-1.5 px-3 py-1.5 sm:px-4 lg:px-6">
-				<div className="flex flex-wrap items-center gap-2 border-b border-border/40 pb-1.5">
-					<ToolbarField
-						icon={Database}
-						label="Namespace"
-						className="min-w-64 flex-1 md:max-w-md"
-					>
-						{namespaceSearchControl}
-					</ToolbarField>
-					<ToolbarField
-						icon={Server}
-						label="Deployment"
-						className="min-w-64 flex-1 md:max-w-md"
-					>
-						{deploymentSearchControl}
-					</ToolbarField>
-					<ToolbarField
-						icon={Boxes}
-						label="Pod"
-						className="min-w-64 flex-1 md:max-w-md"
-					>
-						{podSearchControl}
-					</ToolbarField>
-				</div>
-
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
 					<ToolbarSection aria-label="Log search" className="min-w-72 flex-1">
 						{searchControl}
