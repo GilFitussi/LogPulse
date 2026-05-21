@@ -106,12 +106,26 @@ const AUTH_STATUS = {
 
 function getClusterApiErrorMessage(data, fallbackMessage) {
 	const details = data.details;
-	const detailsMessage =
-		details && typeof details === "object"
-			? Object.values(details).filter(Boolean).join(" ")
-			: details;
 
-	return detailsMessage || data.error || fallbackMessage;
+	if (typeof details === "string") {
+		return details;
+	}
+
+	if (details && typeof details === "object") {
+		if (typeof details.message === "string") {
+			return details.message;
+		}
+
+		const detailsMessage = Object.values(details)
+			.filter((value) => typeof value === "string" && value.trim())
+			.join(" ");
+
+		if (detailsMessage) {
+			return detailsMessage;
+		}
+	}
+
+	return data.error || fallbackMessage;
 }
 
 function SearchableSelector({
@@ -669,6 +683,122 @@ function App() {
 		[loadClusters],
 	);
 
+	const checkAuthStatus = useCallback(async () => {
+		try {
+			const response = await fetch(`${API_BASE_URL}/api/auth/status`);
+			const data = await response.json().catch(() => ({}));
+
+			if (response.ok && data.authenticated === true) {
+				setAuthStatus(AUTH_STATUS.CONNECTED);
+				setAuthStatusMessage(
+					data.username ? `OC logged in as ${data.username}` : "OC logged in",
+				);
+				return;
+			}
+
+			if (response.status === 401) {
+				setAuthStatus(AUTH_STATUS.NOT_LOGGED_IN);
+				setAuthStatusMessage(data.action || data.error || "Run oc login");
+				return;
+			}
+
+			if (
+				response.status === 500 &&
+				data.error?.toLowerCase().includes("oc cli")
+			) {
+				setAuthStatus(AUTH_STATUS.OC_NOT_INSTALLED);
+				setAuthStatusMessage(data.action || data.error || "oc CLI missing");
+				return;
+			}
+
+			setAuthStatus(AUTH_STATUS.ERROR);
+			setAuthStatusMessage(data.error || "Unable to verify oc login");
+		} catch {
+			setAuthStatus(AUTH_STATUS.ERROR);
+			setAuthStatusMessage("Unable to reach backend for oc login check");
+		}
+	}, []);
+
+	const loadNamespaces = useCallback(async () => {
+		setNamespaces([]);
+		setSelectedNamespace("");
+		setDeployments([]);
+		setSelectedDeployment("");
+		setPods([]);
+		setSelectedPod("");
+		setNamespacesStatus("Loading projects...");
+		setDeploymentsStatus("Select a project to load deployments");
+		setPodsStatus("Select a deployment to load pods");
+
+		try {
+			const response = await fetch(`${API_BASE_URL}/api/namespaces`);
+			const data = await response.json().catch(() => ({}));
+
+			if (response.status === 401) {
+				setNamespacesStatus(
+					data.details || data.error || "OpenShift authentication failed",
+				);
+				return;
+			}
+
+			if (response.status === 403) {
+				setNamespacesStatus(
+					data.details || "Your oc user cannot list projects",
+				);
+				return;
+			}
+
+			if (!response.ok) {
+				setNamespacesStatus(
+					data.details || data.error || "Unable to load projects",
+				);
+				return;
+			}
+
+			if (!Array.isArray(data.namespaces)) {
+				setNamespacesStatus("Unexpected projects response from backend");
+				return;
+			}
+
+			setNamespaces(data.namespaces);
+			setNamespacesStatus(
+				data.namespaces.length > 0 ? "Choose a project" : "No projects found",
+			);
+		} catch {
+			setNamespacesStatus("Unable to reach backend");
+		}
+	}, []);
+
+	const loginToCluster = useCallback(
+		async (cluster, credentials) => {
+			const response = await fetch(
+				`${API_BASE_URL}/clusters/${cluster.id}/login`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(credentials),
+				},
+			);
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(
+					getClusterApiErrorMessage(data, "Unable to login to cluster"),
+				);
+			}
+
+			await loadClusters();
+			setSelectedClusterId(data.cluster?.id ?? cluster.id);
+			await checkAuthStatus();
+			await loadNamespaces();
+
+			return data;
+		},
+		[checkAuthStatus, loadClusters, loadNamespaces],
+	);
+
 	useEffect(() => {
 		const checkBackendHealth = async () => {
 			try {
@@ -692,87 +822,11 @@ function App() {
 			}
 		};
 
-		const checkAuthStatus = async () => {
-			try {
-				const response = await fetch(`${API_BASE_URL}/api/auth/status`);
-				const data = await response.json().catch(() => ({}));
-
-				if (response.ok && data.authenticated === true) {
-					setAuthStatus(AUTH_STATUS.CONNECTED);
-					setAuthStatusMessage(
-						data.username ? `OC logged in as ${data.username}` : "OC logged in",
-					);
-					return;
-				}
-
-				if (response.status === 401) {
-					setAuthStatus(AUTH_STATUS.NOT_LOGGED_IN);
-					setAuthStatusMessage(data.action || data.error || "Run oc login");
-					return;
-				}
-
-				if (
-					response.status === 500 &&
-					data.error?.toLowerCase().includes("oc cli")
-				) {
-					setAuthStatus(AUTH_STATUS.OC_NOT_INSTALLED);
-					setAuthStatusMessage(data.action || data.error || "oc CLI missing");
-					return;
-				}
-
-				setAuthStatus(AUTH_STATUS.ERROR);
-				setAuthStatusMessage(data.error || "Unable to verify oc login");
-			} catch {
-				setAuthStatus(AUTH_STATUS.ERROR);
-				setAuthStatusMessage("Unable to reach backend for oc login check");
-			}
-		};
-
-		const loadNamespaces = async () => {
-			try {
-				const response = await fetch(`${API_BASE_URL}/api/namespaces`);
-				const data = await response.json().catch(() => ({}));
-
-				if (response.status === 401) {
-					setNamespacesStatus(
-						data.details || data.error || "OpenShift authentication failed",
-					);
-					return;
-				}
-
-				if (response.status === 403) {
-					setNamespacesStatus(
-						data.details || "Your oc user cannot list projects",
-					);
-					return;
-				}
-
-				if (!response.ok) {
-					setNamespacesStatus(
-						data.details || data.error || "Unable to load projects",
-					);
-					return;
-				}
-
-				if (!Array.isArray(data.namespaces)) {
-					setNamespacesStatus("Unexpected projects response from backend");
-					return;
-				}
-
-				setNamespaces(data.namespaces);
-				setNamespacesStatus(
-					data.namespaces.length > 0 ? "Choose a project" : "No projects found",
-				);
-			} catch {
-				setNamespacesStatus("Unable to reach backend");
-			}
-		};
-
-		checkBackendHealth();
-		checkAuthStatus();
-		loadNamespaces();
+		void Promise.resolve().then(checkBackendHealth);
+		void Promise.resolve().then(checkAuthStatus);
+		void Promise.resolve().then(loadNamespaces);
 		void Promise.resolve().then(loadClusters);
-	}, [loadClusters]);
+	}, [checkAuthStatus, loadClusters, loadNamespaces]);
 
 	useEffect(() => {
 		if (!selectedNamespace) {
@@ -1524,6 +1578,7 @@ function App() {
 						isLoading={isClustersLoading}
 						onCreateCluster={createCluster}
 						onDeleteCluster={deleteCluster}
+						onLoginCluster={loginToCluster}
 						onRefresh={loadClusters}
 						onSelectCluster={setSelectedClusterId}
 						onUpdateCluster={updateCluster}
