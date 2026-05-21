@@ -7,7 +7,10 @@ const {
 	listClusters,
 	updateCluster,
 } = require("../../src/service/clusterManager.service");
-const { loginToCluster } = require("../../src/service/clusterOcLogin.service");
+const {
+	loginToCluster,
+	logoutFromCluster,
+} = require("../../src/service/clusterOcLogin.service");
 
 jest.mock("../../src/service/clusterManager.service", () => ({
 	createCluster: jest.fn(),
@@ -19,6 +22,7 @@ jest.mock("../../src/service/clusterManager.service", () => ({
 
 jest.mock("../../src/service/clusterOcLogin.service", () => ({
 	loginToCluster: jest.fn(),
+	logoutFromCluster: jest.fn(),
 }));
 
 jest.mock("../../src/service/namespaces.service", () => ({
@@ -45,6 +49,7 @@ beforeEach(() => {
 	listClusters.mockReset();
 	updateCluster.mockReset();
 	loginToCluster.mockReset();
+	logoutFromCluster.mockReset();
 });
 
 describe("GET /clusters", () => {
@@ -388,6 +393,44 @@ describe("POST /clusters/:clusterId/login", () => {
 			},
 		});
 		expect(loginToCluster).not.toHaveBeenCalled();
+	});
+});
+
+describe("POST /clusters/:clusterId/logout", () => {
+	it("logs out from a cluster", async () => {
+		const cluster = {
+			id: 1,
+			name: "Dev",
+			apiUrl: "https://api.dev.example.com:6443",
+			lastConnectedAt: "2026-05-20T10:01:00.000Z",
+			lastConnectionStatus: "disconnected",
+			lastConnectionError: null,
+		};
+		logoutFromCluster.mockResolvedValue(cluster);
+
+		const response = await request(app.callback()).post("/clusters/1/logout");
+
+		expect(response.status).toBe(200);
+		expect(response.body).toEqual({ cluster });
+		expect(logoutFromCluster).toHaveBeenCalledWith(1);
+	});
+
+	it("uses error middleware when logging out from a missing cluster", async () => {
+		logoutFromCluster.mockRejectedValue(
+			new AppError("Cluster not found", {
+				status: 404,
+				code: "CLUSTER_NOT_FOUND",
+			}),
+		);
+
+		const response = await request(app.callback()).post("/clusters/999/logout");
+
+		expect(response.status).toBe(404);
+		expect(response.body).toEqual({
+			error: "Cluster not found",
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(logoutFromCluster).toHaveBeenCalledWith(999);
 	});
 });
 

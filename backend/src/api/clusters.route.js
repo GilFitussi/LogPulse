@@ -7,7 +7,10 @@ const {
 	listClusters,
 	updateCluster,
 } = require("../service/clusterManager.service");
-const { loginToCluster } = require("../service/clusterOcLogin.service");
+const {
+	loginToCluster,
+	logoutFromCluster,
+} = require("../service/clusterOcLogin.service");
 
 const router = new Router();
 
@@ -147,6 +150,12 @@ router.post("/clusters/:clusterId/login", async (ctx) => {
 	ctx.body = {
 		cluster: result.cluster,
 		username: result.username,
+	};
+});
+
+router.post("/clusters/:clusterId/logout", async (ctx) => {
+	ctx.body = {
+		cluster: await logoutFromCluster(parseClusterId(ctx.params.clusterId)),
 	};
 });
 

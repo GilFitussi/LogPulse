@@ -13,6 +13,7 @@ const {
 } = require("./ocCommand.service");
 
 const LOGIN_STATUS_CONNECTED = "connected";
+const LOGIN_STATUS_DISCONNECTED = "disconnected";
 const LOGIN_STATUS_FAILED = "failed";
 const OC_NOT_INSTALLED_ERROR =
 	"oc CLI is not installed or not available in PATH";
@@ -89,6 +90,38 @@ async function loginToCluster(clusterId, credentials) {
 	}
 }
 
+async function logoutFromCluster(clusterId) {
+	const cluster = await getClusterById(clusterId);
+
+	if (!cluster) {
+		throw new AppError("Cluster not found", {
+			status: 404,
+			code: "CLUSTER_NOT_FOUND",
+		});
+	}
+
+	try {
+		await runOcCommand(["logout", cluster.apiUrl]);
+	} catch (error) {
+		if (isOcNotInstalledError(error)) {
+			throw new AppError("Cluster logout failed", {
+				status: 500,
+				code: "CLUSTER_LOGOUT_FAILED",
+				details: { message: OC_NOT_INSTALLED_ERROR },
+				action: "Install oc CLI and ensure it is available in PATH.",
+			});
+		}
+		// Continue updating LogPulse's cluster status even if oc has no matching
+		// active session for this API URL.
+	}
+
+	return updateClusterConnectionStatus(cluster.id, {
+		lastConnectedAt: cluster.lastConnectedAt,
+		lastConnectionStatus: LOGIN_STATUS_DISCONNECTED,
+		lastConnectionError: null,
+	});
+}
+
 function sanitizeOcError(message, credentials) {
 	let sanitized = message || "oc login failed";
 
@@ -118,6 +151,8 @@ function buildLoginArgs(apiUrl, credentials) {
 
 module.exports = {
 	LOGIN_STATUS_CONNECTED,
+	LOGIN_STATUS_DISCONNECTED,
 	LOGIN_STATUS_FAILED,
 	loginToCluster,
+	logoutFromCluster,
 };

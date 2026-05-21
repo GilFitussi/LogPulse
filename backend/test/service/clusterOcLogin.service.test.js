@@ -6,8 +6,10 @@ const {
 const { runOcCommand } = require("../../src/service/ocCommand.service");
 const {
 	LOGIN_STATUS_CONNECTED,
+	LOGIN_STATUS_DISCONNECTED,
 	LOGIN_STATUS_FAILED,
 	loginToCluster,
+	logoutFromCluster,
 } = require("../../src/service/clusterOcLogin.service");
 
 jest.mock("../../src/service/clusterManager.service", () => ({
@@ -218,6 +220,47 @@ describe("cluster oc login service", () => {
 		await expect(
 			loginToCluster(999, { username: "developer", password: "secret" }),
 		).rejects.toMatchObject({
+			message: "Cluster not found",
+			status: 404,
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(runOcCommand).not.toHaveBeenCalled();
+		expect(updateClusterConnectionStatus).not.toHaveBeenCalled();
+	});
+
+	it("logs out from a cluster and marks it disconnected", async () => {
+		const cluster = {
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+			lastConnectedAt: "2026-05-20T10:00:00.000Z",
+		};
+		const updatedCluster = {
+			...cluster,
+			lastConnectionStatus: LOGIN_STATUS_DISCONNECTED,
+			lastConnectionError: null,
+		};
+		getClusterById.mockResolvedValue(cluster);
+		runOcCommand.mockResolvedValue({ stdout: "", stderr: "" });
+		updateClusterConnectionStatus.mockResolvedValue(updatedCluster);
+
+		const result = await logoutFromCluster(1);
+
+		expect(result).toBe(updatedCluster);
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"logout",
+			"https://api.dev.example.com:6443",
+		]);
+		expect(updateClusterConnectionStatus).toHaveBeenCalledWith(1, {
+			lastConnectedAt: "2026-05-20T10:00:00.000Z",
+			lastConnectionStatus: LOGIN_STATUS_DISCONNECTED,
+			lastConnectionError: null,
+		});
+	});
+
+	it("throws an app error without running oc logout when the cluster is missing", async () => {
+		getClusterById.mockResolvedValue(null);
+
+		await expect(logoutFromCluster(999)).rejects.toMatchObject({
 			message: "Cluster not found",
 			status: 404,
 			code: "CLUSTER_NOT_FOUND",
