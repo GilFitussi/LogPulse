@@ -41,8 +41,24 @@ const updateClusterSchema = Joi.object({
 }).min(1);
 
 const loginSchema = Joi.object({
-	username: Joi.string().trim().required(),
-	password: Joi.string().required(),
+	loginMethod: Joi.string()
+		.valid("credentials", "token")
+		.default("credentials"),
+	username: Joi.when("loginMethod", {
+		is: "credentials",
+		then: Joi.string().trim().required(),
+		otherwise: Joi.string().trim().optional().allow(""),
+	}),
+	password: Joi.when("loginMethod", {
+		is: "credentials",
+		then: Joi.string().required(),
+		otherwise: Joi.string().optional().allow(""),
+	}),
+	token: Joi.when("loginMethod", {
+		is: "token",
+		then: Joi.string().trim().required(),
+		otherwise: Joi.string().optional().allow(""),
+	}),
 });
 
 router.get("/clusters", async (ctx) => {
