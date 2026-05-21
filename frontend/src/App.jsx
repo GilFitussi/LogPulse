@@ -799,6 +799,31 @@ function App() {
 		[checkAuthStatus, loadClusters, loadNamespaces],
 	);
 
+	const logoutFromCluster = useCallback(
+		async (cluster) => {
+			const response = await fetch(
+				`${API_BASE_URL}/clusters/${cluster.id}/logout`,
+				{
+					method: "POST",
+				},
+			);
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(
+					getClusterApiErrorMessage(data, "Unable to logout from cluster"),
+				);
+			}
+
+			await loadClusters();
+			await checkAuthStatus();
+			await loadNamespaces();
+
+			return data.cluster;
+		},
+		[checkAuthStatus, loadClusters, loadNamespaces],
+	);
+
 	useEffect(() => {
 		const checkBackendHealth = async () => {
 			try {
@@ -1579,6 +1604,7 @@ function App() {
 						onCreateCluster={createCluster}
 						onDeleteCluster={deleteCluster}
 						onLoginCluster={loginToCluster}
+						onLogoutCluster={logoutFromCluster}
 						onRefresh={loadClusters}
 						onSelectCluster={setSelectedClusterId}
 						onUpdateCluster={updateCluster}

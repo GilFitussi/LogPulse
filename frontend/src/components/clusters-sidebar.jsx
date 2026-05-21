@@ -6,6 +6,7 @@ import {
 	Edit3,
 	KeyRound,
 	LoaderCircle,
+	LogOut,
 	MoreHorizontal,
 	Plus,
 	RefreshCw,
@@ -38,6 +39,14 @@ function getConnectionStatusConfig(status) {
 			label: "Connected",
 			className:
 				"bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+		};
+	}
+
+	if (["disconnected", "logged-out", "logged out"].includes(normalizedStatus)) {
+		return {
+			Icon: LogOut,
+			label: "Logged out",
+			className: "bg-muted text-muted-foreground ring-border",
 		};
 	}
 
@@ -512,6 +521,79 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 	);
 }
 
+function LogoutClusterDialog({ cluster, onLogoutCluster }) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [error, setError] = useState("");
+	const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+	const handleOpenChange = (nextOpen) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			setError("");
+			setIsLoggingOut(false);
+		}
+	};
+
+	const handleLogout = async () => {
+		setIsLoggingOut(true);
+		setError("");
+
+		try {
+			await onLogoutCluster(cluster);
+			setIsOpen(false);
+		} catch (logoutError) {
+			setError(logoutError.message || "Unable to logout from cluster.");
+		} finally {
+			setIsLoggingOut(false);
+		}
+	};
+
+	return (
+		<Dialog.Root open={isOpen} onOpenChange={handleOpenChange}>
+			<Dialog.Trigger asChild>
+				<DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+					<LogOut className="size-3.5" aria-hidden="true" />
+					Logout
+				</DropdownMenuItem>
+			</Dialog.Trigger>
+			<Dialog.Portal>
+				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
+					<Dialog.Title className="text-base font-semibold text-foreground">
+						Logout from cluster?
+					</Dialog.Title>
+					<Dialog.Description className="mt-2 text-sm text-muted-foreground">
+						This will run oc logout for "{cluster.name}" and refresh the cluster
+						connection status.
+					</Dialog.Description>
+
+					{error ? (
+						<p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive ring-1 ring-destructive/20">
+							{error}
+						</p>
+					) : null}
+
+					<div className="mt-4 flex justify-end gap-2">
+						<Dialog.Close asChild>
+							<Button type="button" variant="outline" disabled={isLoggingOut}>
+								Cancel
+							</Button>
+						</Dialog.Close>
+						<Button
+							type="button"
+							onClick={handleLogout}
+							disabled={isLoggingOut}
+						>
+							{isLoggingOut ? "Logging out..." : "Logout"}
+						</Button>
+					</div>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
 function DeleteClusterDialog({ cluster, onDeleteCluster }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [error, setError] = useState("");
@@ -596,6 +678,7 @@ export function ClustersSidebar({
 	onCreateCluster,
 	onDeleteCluster,
 	onLoginCluster,
+	onLogoutCluster,
 	onRefresh,
 	onSelectCluster,
 	onUpdateCluster,
@@ -669,6 +752,9 @@ export function ClustersSidebar({
 						{clusters.map((cluster) => {
 							const isSelected =
 								String(cluster.id) === String(selectedClusterId);
+							const isConnected =
+								String(cluster.lastConnectionStatus || "").toLowerCase() ===
+								"connected";
 
 							return (
 								<div
@@ -732,7 +818,7 @@ export function ClustersSidebar({
 												</ToolbarButton>
 											</DropdownMenuTrigger>
 											<DropdownMenuContent>
-												{onLoginCluster ? (
+												{onLoginCluster && !isConnected ? (
 													<ClusterLoginModal
 														cluster={cluster}
 														onLoginCluster={onLoginCluster}
@@ -747,6 +833,12 @@ export function ClustersSidebar({
 																Login
 															</DropdownMenuItem>
 														}
+													/>
+												) : null}
+												{onLogoutCluster && isConnected ? (
+													<LogoutClusterDialog
+														cluster={cluster}
+														onLogoutCluster={onLogoutCluster}
 													/>
 												) : null}
 												<ClusterFormModal
