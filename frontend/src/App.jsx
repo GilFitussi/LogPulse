@@ -688,55 +688,66 @@ function App() {
 		}
 	}, []);
 
-	const loadNamespaces = useCallback(async () => {
-		setNamespaces([]);
-		setSelectedNamespace("");
-		setDeployments([]);
-		setSelectedDeployment("");
-		setPods([]);
-		setSelectedPod("");
-		setNamespacesStatus("Loading projects...");
-		setDeploymentsStatus("Select a project to load deployments");
-		setPodsStatus("Select a deployment to load pods");
+	const loadNamespaces = useCallback(
+		async (clusterId = selectedClusterId) => {
+			setNamespaces([]);
+			setSelectedNamespace("");
+			setDeployments([]);
+			setSelectedDeployment("");
+			setPods([]);
+			setSelectedPod("");
+			setDeploymentsStatus("Select a project to load deployments");
+			setPodsStatus("Select a deployment to load pods");
 
-		try {
-			const response = await fetch(`${API_BASE_URL}/api/namespaces`);
-			const data = await response.json().catch(() => ({}));
+			if (!clusterId) {
+				setNamespacesStatus("Select a cluster to load projects");
+				return;
+			}
 
-			if (response.status === 401) {
-				setNamespacesStatus(
-					data.details || data.error || "OpenShift authentication failed",
+			setNamespacesStatus("Loading projects...");
+
+			try {
+				const response = await fetch(
+					`${API_BASE_URL}/api/clusters/${encodeURIComponent(clusterId)}/namespaces`,
 				);
-				return;
-			}
+				const data = await response.json().catch(() => ({}));
 
-			if (response.status === 403) {
+				if (response.status === 401) {
+					setNamespacesStatus(
+						data.details || data.error || "OpenShift authentication failed",
+					);
+					return;
+				}
+
+				if (response.status === 403) {
+					setNamespacesStatus(
+						data.details || "Your oc user cannot list projects",
+					);
+					return;
+				}
+
+				if (!response.ok) {
+					setNamespacesStatus(
+						data.details || data.error || "Unable to load projects",
+					);
+					return;
+				}
+
+				if (!Array.isArray(data.namespaces)) {
+					setNamespacesStatus("Unexpected projects response from backend");
+					return;
+				}
+
+				setNamespaces(data.namespaces);
 				setNamespacesStatus(
-					data.details || "Your oc user cannot list projects",
+					data.namespaces.length > 0 ? "Choose a project" : "No projects found",
 				);
-				return;
+			} catch {
+				setNamespacesStatus("Unable to reach backend");
 			}
-
-			if (!response.ok) {
-				setNamespacesStatus(
-					data.details || data.error || "Unable to load projects",
-				);
-				return;
-			}
-
-			if (!Array.isArray(data.namespaces)) {
-				setNamespacesStatus("Unexpected projects response from backend");
-				return;
-			}
-
-			setNamespaces(data.namespaces);
-			setNamespacesStatus(
-				data.namespaces.length > 0 ? "Choose a project" : "No projects found",
-			);
-		} catch {
-			setNamespacesStatus("Unable to reach backend");
-		}
-	}, []);
+		},
+		[selectedClusterId],
+	);
 
 	const loginToCluster = useCallback(
 		async (cluster, credentials) => {
@@ -758,10 +769,12 @@ function App() {
 				);
 			}
 
+			const loggedInClusterId = data.cluster?.id ?? cluster.id;
+
 			await loadClusters();
-			setSelectedClusterId(data.cluster?.id ?? cluster.id);
+			setSelectedClusterId(loggedInClusterId);
 			await checkAuthStatus();
-			await loadNamespaces();
+			await loadNamespaces(loggedInClusterId);
 
 			return data;
 		},
@@ -818,12 +831,15 @@ function App() {
 
 		void Promise.resolve().then(checkBackendHealth);
 		void Promise.resolve().then(checkAuthStatus);
-		void Promise.resolve().then(loadNamespaces);
 		void Promise.resolve().then(loadClusters);
-	}, [checkAuthStatus, loadClusters, loadNamespaces]);
+	}, [checkAuthStatus, loadClusters]);
 
 	useEffect(() => {
-		if (!selectedNamespace) {
+		void Promise.resolve().then(() => loadNamespaces(selectedClusterId));
+	}, [loadNamespaces, selectedClusterId]);
+
+	useEffect(() => {
+		if (!selectedClusterId || !selectedNamespace) {
 			return undefined;
 		}
 
@@ -834,7 +850,7 @@ function App() {
 
 			try {
 				const response = await fetch(
-					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/deployments`,
+					`${API_BASE_URL}/api/clusters/${encodeURIComponent(selectedClusterId)}/namespaces/${encodeURIComponent(selectedNamespace)}/deployments`,
 					{ signal: controller.signal },
 				);
 				const data = await response.json().catch(() => ({}));
@@ -882,10 +898,10 @@ function App() {
 		loadDeployments();
 
 		return () => controller.abort();
-	}, [selectedNamespace]);
+	}, [selectedClusterId, selectedNamespace]);
 
 	useEffect(() => {
-		if (!selectedNamespace || !selectedDeployment) {
+		if (!selectedClusterId || !selectedNamespace || !selectedDeployment) {
 			return undefined;
 		}
 
@@ -896,7 +912,7 @@ function App() {
 
 			try {
 				const response = await fetch(
-					`${API_BASE_URL}/api/namespaces/${encodeURIComponent(selectedNamespace)}/deployments/${encodeURIComponent(selectedDeployment)}/pods`,
+					`${API_BASE_URL}/api/clusters/${encodeURIComponent(selectedClusterId)}/namespaces/${encodeURIComponent(selectedNamespace)}/deployments/${encodeURIComponent(selectedDeployment)}/pods`,
 					{ signal: controller.signal },
 				);
 				const data = await response.json().catch(() => ({}));
@@ -937,7 +953,7 @@ function App() {
 		loadPods();
 
 		return () => controller.abort();
-	}, [selectedDeployment, selectedNamespace]);
+	}, [selectedClusterId, selectedDeployment, selectedNamespace]);
 
 	const appendReceivedLogLines = useCallback((receivedLogLines) => {
 		const formattedLogLines = (
@@ -1294,12 +1310,17 @@ function App() {
 								<>
 									<div className="mt-2 rounded-lg border border-border/60 bg-background/70 p-2">
 										<div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-											<div className="flex min-w-72 flex-1 gap-1.5" aria-label="Log search">
+											<div
+												className="flex min-w-72 flex-1 gap-1.5"
+												aria-label="Log search"
+											>
 												<ToolbarSearchContainer>
 													<input
 														id="log-search"
 														value={logSearch}
-														onChange={(event) => setLogSearch(event.target.value)}
+														onChange={(event) =>
+															setLogSearch(event.target.value)
+														}
 														placeholder="Search logs..."
 														aria-label="Filter logs by text"
 														className={toolbarSearchInputClassName}
@@ -1317,7 +1338,10 @@ function App() {
 												</ToolbarButton>
 											</div>
 
-											<div className="flex flex-wrap gap-1" aria-label="Severity filters">
+											<div
+												className="flex flex-wrap gap-1"
+												aria-label="Severity filters"
+											>
 												{severityFilterOptions.map((option) => {
 													const isActive = activeSeverityFilters.includes(
 														option.severity,
@@ -1327,7 +1351,9 @@ function App() {
 														<ToolbarButton
 															key={option.severity}
 															type="button"
-															onClick={() => toggleSeverityFilter(option.severity)}
+															onClick={() =>
+																toggleSeverityFilter(option.severity)
+															}
 															aria-pressed={isActive}
 															className={`rounded-full border-transparent bg-muted/50 px-2 text-muted-foreground hover:bg-muted ${
 																isActive ? option.buttonClassName : ""
@@ -1383,7 +1409,9 @@ function App() {
 														type="checkbox"
 														checked={includeFilteredOutLogsForExport}
 														onChange={(event) =>
-															setIncludeFilteredOutLogsForExport(event.target.checked)
+															setIncludeFilteredOutLogsForExport(
+																event.target.checked,
+															)
 														}
 														className="h-3.5 w-3.5 rounded border-input accent-primary"
 													/>
@@ -1397,7 +1425,10 @@ function App() {
 															title="Log actions"
 															className="w-7 px-0"
 														>
-															<MoreHorizontal className="size-3.5" aria-hidden="true" />
+															<MoreHorizontal
+																className="size-3.5"
+																aria-hidden="true"
+															/>
 														</ToolbarButton>
 													</DropdownMenuTrigger>
 													<DropdownMenuContent>
@@ -1419,14 +1450,20 @@ function App() {
 															onSelect={exportLogLinesAsText}
 															disabled={exportLogLines.length === 0}
 														>
-															<Download className="size-3.5" aria-hidden="true" />
+															<Download
+																className="size-3.5"
+																aria-hidden="true"
+															/>
 															Export .txt
 														</DropdownMenuItem>
 														<DropdownMenuItem
 															onSelect={exportLogLinesAsJson}
 															disabled={exportLogLines.length === 0}
 														>
-															<FileJson className="size-3.5" aria-hidden="true" />
+															<FileJson
+																className="size-3.5"
+																aria-hidden="true"
+															/>
 															Export .json
 														</DropdownMenuItem>
 													</DropdownMenuContent>
