@@ -1,5 +1,8 @@
 const { bootstrapDatabase } = require("../database/bootstrap");
 
+const LOGIN_STATUS_CONNECTED = "connected";
+const LOGIN_STATUS_DISCONNECTED = "disconnected";
+
 const CLUSTER_FIELDS = [
 	"id",
 	"name",
@@ -229,6 +232,19 @@ async function deleteCluster(id, options = {}) {
 	});
 }
 
+async function resetConnectedClustersOnStartup(options = {}) {
+	return withDatabase(options.database, async (database) => {
+		const result = await database.run(
+			`UPDATE clusters
+			SET lastConnectionStatus = ?, lastConnectionError = ?
+			WHERE lastConnectionStatus = ?`,
+			[LOGIN_STATUS_DISCONNECTED, null, LOGIN_STATUS_CONNECTED],
+		);
+
+		return result.changes;
+	});
+}
+
 async function clusterExists(id, options = {}) {
 	return withDatabase(options.database, async (database) => {
 		const row = await database.get(
@@ -246,5 +262,6 @@ module.exports = {
 	updateCluster,
 	updateClusterConnectionStatus,
 	deleteCluster,
+	resetConnectedClustersOnStartup,
 	clusterExists,
 };

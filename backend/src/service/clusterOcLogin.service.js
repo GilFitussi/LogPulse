@@ -7,6 +7,10 @@ const {
 	updateClusterConnectionStatus,
 } = require("./clusterManager.service");
 const {
+	clearClusterSession,
+	setClusterSession,
+} = require("./clusterSessionRegistry.service");
+const {
 	getOcErrorMessage,
 	isOcNotInstalledError,
 	runOcCommand,
@@ -53,10 +57,18 @@ async function loginToCluster(clusterId, credentials) {
 			throw new Error("Unable to verify oc login");
 		}
 
+		const kubeconfigContent = await fs.readFile(kubeconfigPath, "utf8");
 		const updatedCluster = await updateClusterConnectionStatus(cluster.id, {
 			lastConnectedAt: now,
 			lastConnectionStatus: LOGIN_STATUS_CONNECTED,
 			lastConnectionError: null,
+		});
+
+		setClusterSession(cluster.id, {
+			clusterId: cluster.id,
+			kubeconfigContent,
+			username,
+			connectedAt: now,
 		});
 
 		return {
@@ -115,11 +127,14 @@ async function logoutFromCluster(clusterId) {
 		// active session for this API URL.
 	}
 
-	return updateClusterConnectionStatus(cluster.id, {
+	const updatedCluster = await updateClusterConnectionStatus(cluster.id, {
 		lastConnectedAt: cluster.lastConnectedAt,
 		lastConnectionStatus: LOGIN_STATUS_DISCONNECTED,
 		lastConnectionError: null,
 	});
+
+	clearClusterSession(cluster.id);
+	return updatedCluster;
 }
 
 function sanitizeOcError(message, credentials) {
