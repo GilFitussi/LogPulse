@@ -67,7 +67,8 @@ router.use(async (ctx, next) => {
 	await next();
 });
 
-router.get("/namespaces", async (ctx) => {	ctx.body = {
+router.get("/namespaces", async (ctx) => {
+	ctx.body = {
 		namespaces: await listClusterNamespaces(ctx.state.clusterId),
 	};
 });
