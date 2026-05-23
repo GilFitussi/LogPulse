@@ -18,7 +18,6 @@ import {
 	Panel,
 } from "@/components/layout/app-shell";
 import {
-	SecondaryFilterToolbar,
 	ToolbarButton,
 	ToolbarSearchContainer,
 	TopToolbar,
@@ -469,10 +468,8 @@ function LogLineRow({
 
 function App() {
 	const [, setHealthStatus] = useState("Checking backend health...");
-	const [authStatus, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
-	const [authStatusMessage, setAuthStatusMessage] = useState(
-		"Checking oc login...",
-	);
+	const [, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
+	const [, setAuthStatusMessage] = useState("Checking oc login...");
 	const [clusters, setClusters] = useState([]);
 	const [clustersError, setClustersError] = useState("");
 	const [isClustersLoading, setIsClustersLoading] = useState(true);
@@ -1268,165 +1265,13 @@ function App() {
 	const toolbarInputClassName =
 		"h-6 w-full rounded-md border border-input/70 bg-background/70 px-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground";
 	const toolbarSearchInputClassName = `${toolbarInputClassName} pl-8`;
-	const isLogStreamConnected = logStatus === "Connected to log stream";
-	const connectionLabel = isLogStreamConnected
-		? "Connected to log stream"
-		: "Select a target to stream logs";
 	const hasNewLogsWhilePaused = newLogCountWhilePaused > 0;
 	const canJumpToLatestLog =
 		isLogAutoScrollPaused && visibleLogLines.length > 0;
 
 	return (
 		<AppShell>
-			<TopToolbar
-				authStatus={authStatus}
-				authStatusMessage={authStatusMessage}
-				connectionLabel={connectionLabel}
-				isConnected={isLogStreamConnected}
-				newLogsAvailable={hasNewLogsWhilePaused}
-			/>
-			<SecondaryFilterToolbar
-				searchControl={
-					<div className="flex min-w-0 flex-1 gap-1.5">
-						<ToolbarSearchContainer>
-							<input
-								id="log-search"
-								value={logSearch}
-								onChange={(event) => setLogSearch(event.target.value)}
-								placeholder="Search logs..."
-								aria-label="Filter logs by text"
-								className={toolbarSearchInputClassName}
-							/>
-						</ToolbarSearchContainer>
-						<ToolbarButton
-							type="button"
-							onClick={clearLogSearch}
-							disabled={!hasActiveLogSearch}
-							aria-label="Clear log search"
-							title="Clear search"
-							className="w-7 px-0"
-						>
-							<X className="size-3.5" aria-hidden="true" />
-						</ToolbarButton>
-					</div>
-				}
-				severityFilterControls={
-					<div className="flex flex-wrap gap-1">
-						{severityFilterOptions.map((option) => {
-							const isActive = activeSeverityFilters.includes(option.severity);
-
-							return (
-								<ToolbarButton
-									key={option.severity}
-									type="button"
-									onClick={() => toggleSeverityFilter(option.severity)}
-									aria-pressed={isActive}
-									className={`rounded-full border-transparent bg-muted/50 px-2 text-muted-foreground hover:bg-muted ${
-										isActive ? option.buttonClassName : ""
-									}`}
-								>
-									{option.label}
-								</ToolbarButton>
-							);
-						})}
-						<ToolbarButton
-							type="button"
-							onClick={clearSeverityFilters}
-							disabled={!hasActiveSeverityFilters}
-							aria-label="Clear severity filters"
-							title="Clear severity filters"
-							className="w-6 rounded-full border-transparent bg-muted/50 px-0"
-						>
-							<X className="size-3" aria-hidden="true" />
-						</ToolbarButton>
-					</div>
-				}
-				utilityActions={
-					<>
-						{isLogAutoScrollPaused ? (
-							<ToolbarButton
-								type="button"
-								onClick={jumpToLatestLog}
-								disabled={!canJumpToLatestLog}
-								aria-label="Resume following latest visible log"
-								title="Resume following latest visible log"
-							>
-								<Play className="size-3.5" aria-hidden="true" />
-								{hasNewLogsWhilePaused
-									? `Follow (${newLogCountWhilePaused} new)`
-									: "Follow"}
-							</ToolbarButton>
-						) : (
-							<ToolbarButton
-								type="button"
-								onClick={pauseLogFollowing}
-								disabled={visibleLogLines.length === 0}
-								aria-label="Pause following latest logs"
-								title="Pause following latest logs"
-							>
-								<Pause className="size-3.5" aria-hidden="true" />
-								Pause
-							</ToolbarButton>
-						)}
-						<label
-							className="flex h-6 items-center gap-1.5 rounded-md bg-background/60 px-2 text-xs text-muted-foreground ring-1 ring-border/50"
-							title="Include filtered-out logs in exports"
-						>
-							<input
-								type="checkbox"
-								checked={includeFilteredOutLogsForExport}
-								onChange={(event) =>
-									setIncludeFilteredOutLogsForExport(event.target.checked)
-								}
-								className="h-3.5 w-3.5 rounded border-input accent-primary"
-							/>
-							Export all
-						</label>
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<ToolbarButton
-									type="button"
-									aria-label="Open log actions"
-									title="Log actions"
-									className="w-7 px-0"
-								>
-									<MoreHorizontal className="size-3.5" aria-hidden="true" />
-								</ToolbarButton>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent>
-								<DropdownMenuItem
-									onSelect={copySelectedLogLine}
-									disabled={!selectedLogLine}
-								>
-									<Copy className="size-3.5" aria-hidden="true" />
-									Copy selected
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									onSelect={copyVisibleLogLines}
-									disabled={visibleLogLines.length === 0}
-								>
-									<Copy className="size-3.5" aria-hidden="true" />
-									Copy visible
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									onSelect={exportLogLinesAsText}
-									disabled={exportLogLines.length === 0}
-								>
-									<Download className="size-3.5" aria-hidden="true" />
-									Export .txt
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									onSelect={exportLogLinesAsJson}
-									disabled={exportLogLines.length === 0}
-								>
-									<FileJson className="size-3.5" aria-hidden="true" />
-									Export .json
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</>
-				}
-			/>
+			<TopToolbar />
 			<PageContainer>
 				<ContentLayout className="min-h-0 flex-1 lg:flex-row">
 					<ClustersSidebar
@@ -1445,54 +1290,202 @@ function App() {
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
 						<div>
 							<SelectedClusterWorkspaceHeader cluster={selectedCluster} />
-							{visibleLogLines.length > 0 ? (
-								<div className="relative mt-2">
-									<List
-										listRef={logListRef}
-										onScroll={handleLogViewerScroll}
-										rowComponent={LogLineRow}
-										rowCount={visibleLogLines.length}
-										rowHeight={LOG_ROW_HEIGHT}
-										rowProps={{
-											logLinesStore,
-											logSearch,
-											onSelectLogLine: setSelectedLogLine,
-											selectedLogLine,
-										}}
-										overscanCount={8}
-										className="overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 text-log-foreground ring-1 ring-border/50"
-										style={{ height: LOG_LIST_HEIGHT }}
-									/>
-									{canJumpToLatestLog && (
-										<button
-											type="button"
-											onClick={jumpToLatestLog}
-											className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
-										>
-											{hasNewLogsWhilePaused
-												? `${newLogCountWhilePaused} new logs — jump to latest`
-												: "Jump to latest"}
-										</button>
+							{selectedPod ? (
+								<>
+									<div className="mt-2 rounded-lg border border-border/60 bg-background/70 p-2">
+										<div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+											<div className="flex min-w-72 flex-1 gap-1.5" aria-label="Log search">
+												<ToolbarSearchContainer>
+													<input
+														id="log-search"
+														value={logSearch}
+														onChange={(event) => setLogSearch(event.target.value)}
+														placeholder="Search logs..."
+														aria-label="Filter logs by text"
+														className={toolbarSearchInputClassName}
+													/>
+												</ToolbarSearchContainer>
+												<ToolbarButton
+													type="button"
+													onClick={clearLogSearch}
+													disabled={!hasActiveLogSearch}
+													aria-label="Clear log search"
+													title="Clear search"
+													className="w-7 px-0"
+												>
+													<X className="size-3.5" aria-hidden="true" />
+												</ToolbarButton>
+											</div>
+
+											<div className="flex flex-wrap gap-1" aria-label="Severity filters">
+												{severityFilterOptions.map((option) => {
+													const isActive = activeSeverityFilters.includes(
+														option.severity,
+													);
+
+													return (
+														<ToolbarButton
+															key={option.severity}
+															type="button"
+															onClick={() => toggleSeverityFilter(option.severity)}
+															aria-pressed={isActive}
+															className={`rounded-full border-transparent bg-muted/50 px-2 text-muted-foreground hover:bg-muted ${
+																isActive ? option.buttonClassName : ""
+															}`}
+														>
+															{option.label}
+														</ToolbarButton>
+													);
+												})}
+												<ToolbarButton
+													type="button"
+													onClick={clearSeverityFilters}
+													disabled={!hasActiveSeverityFilters}
+													aria-label="Clear severity filters"
+													title="Clear severity filters"
+													className="w-6 rounded-full border-transparent bg-muted/50 px-0"
+												>
+													<X className="size-3" aria-hidden="true" />
+												</ToolbarButton>
+											</div>
+
+											<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+												{isLogAutoScrollPaused ? (
+													<ToolbarButton
+														type="button"
+														onClick={jumpToLatestLog}
+														disabled={!canJumpToLatestLog}
+														aria-label="Resume following latest visible log"
+														title="Resume following latest visible log"
+													>
+														<Play className="size-3.5" aria-hidden="true" />
+														{hasNewLogsWhilePaused
+															? `Follow (${newLogCountWhilePaused} new)`
+															: "Follow"}
+													</ToolbarButton>
+												) : (
+													<ToolbarButton
+														type="button"
+														onClick={pauseLogFollowing}
+														disabled={visibleLogLines.length === 0}
+														aria-label="Pause following latest logs"
+														title="Pause following latest logs"
+													>
+														<Pause className="size-3.5" aria-hidden="true" />
+														Pause
+													</ToolbarButton>
+												)}
+												<label
+													className="flex h-6 items-center gap-1.5 rounded-md bg-background/60 px-2 text-xs text-muted-foreground ring-1 ring-border/50"
+													title="Include filtered-out logs in exports"
+												>
+													<input
+														type="checkbox"
+														checked={includeFilteredOutLogsForExport}
+														onChange={(event) =>
+															setIncludeFilteredOutLogsForExport(event.target.checked)
+														}
+														className="h-3.5 w-3.5 rounded border-input accent-primary"
+													/>
+													Export all
+												</label>
+												<DropdownMenu>
+													<DropdownMenuTrigger asChild>
+														<ToolbarButton
+															type="button"
+															aria-label="Open log actions"
+															title="Log actions"
+															className="w-7 px-0"
+														>
+															<MoreHorizontal className="size-3.5" aria-hidden="true" />
+														</ToolbarButton>
+													</DropdownMenuTrigger>
+													<DropdownMenuContent>
+														<DropdownMenuItem
+															onSelect={copySelectedLogLine}
+															disabled={!selectedLogLine}
+														>
+															<Copy className="size-3.5" aria-hidden="true" />
+															Copy selected
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															onSelect={copyVisibleLogLines}
+															disabled={visibleLogLines.length === 0}
+														>
+															<Copy className="size-3.5" aria-hidden="true" />
+															Copy visible
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															onSelect={exportLogLinesAsText}
+															disabled={exportLogLines.length === 0}
+														>
+															<Download className="size-3.5" aria-hidden="true" />
+															Export .txt
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															onSelect={exportLogLinesAsJson}
+															disabled={exportLogLines.length === 0}
+														>
+															<FileJson className="size-3.5" aria-hidden="true" />
+															Export .json
+														</DropdownMenuItem>
+													</DropdownMenuContent>
+												</DropdownMenu>
+											</div>
+										</div>
+									</div>
+									{visibleLogLines.length > 0 ? (
+										<div className="relative mt-2">
+											<List
+												listRef={logListRef}
+												onScroll={handleLogViewerScroll}
+												rowComponent={LogLineRow}
+												rowCount={visibleLogLines.length}
+												rowHeight={LOG_ROW_HEIGHT}
+												rowProps={{
+													logLinesStore,
+													logSearch,
+													onSelectLogLine: setSelectedLogLine,
+													selectedLogLine,
+												}}
+												overscanCount={8}
+												className="overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 text-log-foreground ring-1 ring-border/50"
+												style={{ height: LOG_LIST_HEIGHT }}
+											/>
+											{canJumpToLatestLog && (
+												<button
+													type="button"
+													onClick={jumpToLatestLog}
+													className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring"
+												>
+													{hasNewLogsWhilePaused
+														? `${newLogCountWhilePaused} new logs — jump to latest`
+														: "Jump to latest"}
+												</button>
+											)}
+										</div>
+									) : (
+										<div className="mt-2 h-[35rem] overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground ring-1 ring-border/50">
+											{hasActiveLogFilters
+												? "No log lines match your filters."
+												: "No log lines received yet."}
+										</div>
 									)}
-								</div>
+									<div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+										<span>
+											{visibleLogLines.length} visible / {rawLogLines.length}{" "}
+											buffered
+										</span>
+										<span className="text-foreground/80" role="status">
+											{logTransferStatus || logStatus}
+										</span>
+									</div>
+								</>
 							) : (
-								<div className="mt-2 h-[35rem] overflow-auto rounded-md bg-log p-2 font-mono text-xs leading-5 whitespace-pre-wrap text-log-foreground ring-1 ring-border/50">
-									{hasActiveLogFilters
-										? "No log lines match your filters."
-										: "No log lines received yet."}
+								<div className="mt-2 flex h-[35rem] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+									Select a pod to view logs.
 								</div>
 							)}
-							<div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-								<span>
-									{visibleLogLines.length} visible / {rawLogLines.length}{" "}
-									buffered
-								</span>
-								{logTransferStatus && (
-									<span className="text-foreground/80" role="status">
-										{logTransferStatus}
-									</span>
-								)}
-							</div>
 						</div>
 					</Panel>
 				</ContentLayout>
