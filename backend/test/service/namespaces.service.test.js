@@ -1,7 +1,7 @@
 const childProcess = require("node:child_process");
 const {
 	isValidNamespace,
-	listNamespaces,
+	listNamespacesFromCurrentContext,
 } = require("../../src/service/namespaces.service");
 
 jest.mock("node:child_process", () => ({
@@ -31,7 +31,7 @@ describe("isValidNamespace", () => {
 	});
 });
 
-describe("listNamespaces", () => {
+describe("listNamespacesFromCurrentContext", () => {
 	beforeEach(() => {
 		childProcess.execFile.mockReset();
 	});
@@ -43,7 +43,7 @@ describe("listNamespaces", () => {
 			callback(null, "dev\nprod\n\n", "");
 		});
 
-		await expect(listNamespaces()).resolves.toEqual(["dev", "prod"]);
+		await expect(listNamespacesFromCurrentContext()).resolves.toEqual(["dev", "prod"]);
 	});
 
 	it("throws an OpenShift auth error when oc is not logged in", async () => {
@@ -55,7 +55,7 @@ describe("listNamespaces", () => {
 			);
 		});
 
-		await expect(listNamespaces()).rejects.toMatchObject({
+		await expect(listNamespacesFromCurrentContext()).rejects.toMatchObject({
 			status: 401,
 			message: "OpenShift authentication failed",
 			details: "error: You must be logged in to the server",
@@ -70,7 +70,7 @@ describe("listNamespaces", () => {
 			callback(error, "", "");
 		});
 
-		await expect(listNamespaces()).rejects.toMatchObject({
+		await expect(listNamespacesFromCurrentContext()).rejects.toMatchObject({
 			status: 401,
 			message: "OpenShift authentication failed",
 			details: "spawn oc ENOENT",
@@ -83,7 +83,7 @@ describe("listNamespaces", () => {
 			callback(new Error("command failed"), "", "apiserver unavailable");
 		});
 
-		await expect(listNamespaces()).rejects.toMatchObject({
+		await expect(listNamespacesFromCurrentContext()).rejects.toMatchObject({
 			status: 502,
 			message: "Kubernetes API error",
 			details: "apiserver unavailable",

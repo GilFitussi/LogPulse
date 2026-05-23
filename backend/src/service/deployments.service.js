@@ -1,4 +1,9 @@
 const { KubernetesApiError } = require("../errors/app.error");
+const { runOcCommand } = require("./ocCommand.service");
+const {
+	resolveCluster,
+	withClusterServer,
+} = require("./clusterResourceTarget.service");
 
 const DEPLOYMENT_NAME_PATTERN =
 	/^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
@@ -57,6 +62,16 @@ function isReplicaSetOwnedByDeployment(
 	);
 }
 
+function parseJson(stdout, fallback) {
+	const text = stdout?.trim();
+
+	if (!text) {
+		return fallback;
+	}
+
+	return JSON.parse(text);
+}
+
 function mapDeployment(deployment) {
 	return {
 		name: deployment.metadata?.name,
@@ -68,7 +83,17 @@ function mapDeployment(deployment) {
 	};
 }
 
-async function listDeployments(namespace) {
+async function listDeployments(clusterId, namespace) {
+	const cluster = await resolveCluster(clusterId);
+	return listDeploymentsWithArgs(
+		withClusterServer(
+			["get", "deployments", "-n", namespace, "-o", "json"],
+			cluster,
+		),
+	);
+}
+
+async function listDeploymentsFromCurrentContext(namespace) {
 	try {
 		const k8s = require("@kubernetes/client-node");
 		const { createKubeClient } = require("./kubeClient.service");
@@ -82,7 +107,39 @@ async function listDeployments(namespace) {
 	}
 }
 
+async function listDeploymentsWithArgs(args) {
+	try {
+		const { stdout } = await runOcCommand(args);
+		const deploymentList = parseJson(stdout, { items: [] });
+
+		return (deploymentList?.items || []).map(mapDeployment);
+	} catch (error) {
+		throw KubernetesApiError.from(error);
+	}
+}
+
 async function listReplicaSetsForDeployment(
+	clusterId,
+	namespace,
+	deploymentName,
+	deploymentUid,
+	labelSelector,
+) {
+	const cluster = await resolveCluster(clusterId);
+	const args = ["get", "replicasets", "-n", namespace, "-o", "json"];
+
+	if (labelSelector) {
+		args.push("-l", labelSelector);
+	}
+
+	return listReplicaSetsForDeploymentWithArgs(
+		withClusterServer(args, cluster),
+		deploymentName,
+		deploymentUid,
+	);
+}
+
+async function listReplicaSetsForDeploymentFromCurrentContext(
 	namespace,
 	deploymentName,
 	deploymentUid,
@@ -98,15 +155,63 @@ async function listReplicaSetsForDeployment(
 		});
 		const replicaSetList = response?.body || response;
 
-		return (replicaSetList?.items || []).filter((replicaSet) =>
-			isReplicaSetOwnedByDeployment(replicaSet, deploymentName, deploymentUid),
+		return filterReplicaSetsForDeployment(
+			replicaSetList?.items || [],
+			deploymentName,
+			deploymentUid,
 		);
 	} catch (error) {
 		throw KubernetesApiError.from(error);
 	}
 }
 
-async function getDeployment(namespace, deployment) {
+async function listReplicaSetsForDeploymentWithArgs(
+	args,
+	deploymentName,
+	deploymentUid,
+) {
+	try {
+		const { stdout } = await runOcCommand(args);
+		const replicaSetList = parseJson(stdout, { items: [] });
+
+		return filterReplicaSetsForDeployment(
+			replicaSetList?.items || [],
+			deploymentName,
+			deploymentUid,
+		);
+	} catch (error) {
+		throw KubernetesApiError.from(error);
+	}
+}
+
+function filterReplicaSetsForDeployment(
+	replicaSets,
+	deploymentName,
+	deploymentUid,
+) {
+	return replicaSets.filter((replicaSet) =>
+		isReplicaSetOwnedByDeployment(replicaSet, deploymentName, deploymentUid),
+	);
+}
+
+async function getDeployment(clusterId, namespace, deployment) {
+	const cluster = await resolveCluster(clusterId);
+
+	try {
+		const { stdout } = await runOcCommand(
+			withClusterServer(
+				["get", "deployment", deployment, "-n", namespace, "-o", "json"],
+				cluster,
+			),
+		);
+
+		return parseJson(stdout, null);
+	} catch (error) {
+		throw KubernetesApiError.from(error);
+	}
+}
+
+async function getDeploymentFromCurrentContext(namespace, deployment) {
 	try {
 		const k8s = require("@kubernetes/client-node");
 		const { createKubeClient } = require("./kubeClient.service");
@@ -125,7 +230,10 @@ async function getDeployment(namespace, deployment) {
 module.exports = {
 	buildLabelSelector,
 	getDeployment,
+	getDeploymentFromCurrentContext,
 	isValidDeployment,
 	listDeployments,
+	listDeploymentsFromCurrentContext,
 	listReplicaSetsForDeployment,
+	listReplicaSetsForDeploymentFromCurrentContext,
 };

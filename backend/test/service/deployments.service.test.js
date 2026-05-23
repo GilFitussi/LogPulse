@@ -7,8 +7,8 @@ const { createKubeClient } = require("../../src/service/kubeClient.service");
 const {
 	buildLabelSelector,
 	isValidDeployment,
-	listDeployments,
-	listReplicaSetsForDeployment,
+	listDeploymentsFromCurrentContext,
+	listReplicaSetsForDeploymentFromCurrentContext,
 } = require("../../src/service/deployments.service");
 
 jest.mock("../../src/service/kubeClient.service", () => ({
@@ -61,7 +61,7 @@ describe("listDeployments", () => {
 		});
 		createKubeClient.mockResolvedValue({ listNamespacedDeployment });
 
-		await expect(listDeployments("my-project")).resolves.toEqual([
+		await expect(listDeploymentsFromCurrentContext("my-project")).resolves.toEqual([
 			{
 				name: "api",
 				labels: { app: "api" },
@@ -84,7 +84,7 @@ describe("listDeployments", () => {
 			}),
 		});
 
-		await expect(listDeployments("my-project")).rejects.toMatchObject({
+		await expect(listDeploymentsFromCurrentContext("my-project")).rejects.toMatchObject({
 			status: 403,
 			details: "forbidden",
 		});
@@ -121,7 +121,7 @@ describe("listReplicaSetsForDeployment", () => {
 		createKubeClient.mockResolvedValue({ listNamespacedReplicaSet });
 
 		await expect(
-			listReplicaSetsForDeployment(
+			listReplicaSetsForDeploymentFromCurrentContext(
 				"my-project",
 				"api",
 				"deployment-uid",

@@ -7,6 +7,10 @@ const {
 	isOcNotInstalledError,
 	runOcCommand,
 } = require("./ocCommand.service");
+const {
+	resolveCluster,
+	withClusterServer,
+} = require("./clusterResourceTarget.service");
 
 const NAMESPACE_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const MAX_NAMESPACE_LENGTH = 63;
@@ -32,9 +36,18 @@ function isOcAuthError(error) {
 	return isOcNotInstalledError(error) || message.includes("must be logged in");
 }
 
-async function listNamespaces() {
+async function listNamespaces(clusterId) {
+	const cluster = await resolveCluster(clusterId);
+	return listNamespacesWithArgs(withClusterServer(["projects", "-q"], cluster));
+}
+
+async function listNamespacesFromCurrentContext() {
+	return listNamespacesWithArgs(["projects", "-q"]);
+}
+
+async function listNamespacesWithArgs(args) {
 	try {
-		const { stdout } = await runOcCommand(["projects", "-q"]);
+		const { stdout } = await runOcCommand(args);
 		return parseProjectList(stdout);
 	} catch (error) {
 		const message = getOcErrorMessage(error);
@@ -52,4 +65,5 @@ async function listNamespaces() {
 module.exports = {
 	isValidNamespace,
 	listNamespaces,
+	listNamespacesFromCurrentContext,
 };

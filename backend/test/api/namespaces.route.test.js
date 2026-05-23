@@ -1,15 +1,15 @@
 const request = require("supertest");
 const {
 	isValidNamespace,
-	listNamespaces,
+	listNamespacesFromCurrentContext,
 } = require("../../src/service/namespaces.service");
 const {
 	isValidDeployment,
-	listDeployments,
+	listDeploymentsFromCurrentContext,
 } = require("../../src/service/deployments.service");
 const {
-	listPods,
-	listPodsForDeployment,
+	listPodsFromCurrentContext,
+	listPodsForDeploymentFromCurrentContext,
 } = require("../../src/service/pods.service");
 const {
 	KubernetesApiError,
@@ -18,45 +18,45 @@ const {
 
 jest.mock("../../src/service/namespaces.service", () => ({
 	isValidNamespace: jest.fn(() => true),
-	listNamespaces: jest.fn(),
+	listNamespacesFromCurrentContext: jest.fn(),
 }));
 
 jest.mock("../../src/service/deployments.service", () => ({
 	isValidDeployment: jest.fn(() => true),
-	listDeployments: jest.fn(),
+	listDeploymentsFromCurrentContext: jest.fn(),
 }));
 
 jest.mock("../../src/service/pods.service", () => ({
-	listPods: jest.fn(),
-	listPodsForDeployment: jest.fn(),
+	listPodsFromCurrentContext: jest.fn(),
+	listPodsForDeploymentFromCurrentContext: jest.fn(),
 }));
 
 const app = require("../../src/app");
 
 beforeEach(() => {
-	listNamespaces.mockReset();
+	listNamespacesFromCurrentContext.mockReset();
 	isValidNamespace.mockReset();
 	isValidNamespace.mockReturnValue(true);
-	listDeployments.mockReset();
+	listDeploymentsFromCurrentContext.mockReset();
 	isValidDeployment.mockReset();
 	isValidDeployment.mockReturnValue(true);
-	listPods.mockReset();
-	listPodsForDeployment.mockReset();
+	listPodsFromCurrentContext.mockReset();
+	listPodsForDeploymentFromCurrentContext.mockReset();
 });
 
 describe("GET /api/namespaces", () => {
 	it("returns namespace names from the namespace service", async () => {
-		listNamespaces.mockResolvedValue(["dev", "prod"]);
+		listNamespacesFromCurrentContext.mockResolvedValue(["dev", "prod"]);
 
 		const response = await request(app.callback()).get("/api/namespaces");
 
 		expect(response.status).toBe(200);
 		expect(response.body).toMatchObject({ namespaces: ["dev", "prod"] });
-		expect(listNamespaces).toHaveBeenCalledTimes(1);
+		expect(listNamespacesFromCurrentContext).toHaveBeenCalledTimes(1);
 	});
 
 	it("handles authentication failures through shared error middleware", async () => {
-		listNamespaces.mockRejectedValue(
+		listNamespacesFromCurrentContext.mockRejectedValue(
 			new OpenShiftAuthError(
 				"Unable to create Kubernetes client without an oc token",
 			),
@@ -72,7 +72,7 @@ describe("GET /api/namespaces", () => {
 	});
 
 	it("handles Kubernetes API authentication errors through shared error middleware", async () => {
-		listNamespaces.mockRejectedValue(
+		listNamespacesFromCurrentContext.mockRejectedValue(
 			new OpenShiftAuthError("namespaces is forbidden", 403),
 		);
 
@@ -86,7 +86,7 @@ describe("GET /api/namespaces", () => {
 	});
 
 	it("handles Kubernetes API errors through shared error middleware", async () => {
-		listNamespaces.mockRejectedValue(
+		listNamespacesFromCurrentContext.mockRejectedValue(
 			new KubernetesApiError("apiserver unavailable", 500),
 		);
 
@@ -110,7 +110,7 @@ describe("GET /api/namespaces/:namespace/deployments", () => {
 				readyReplicas: 1,
 			},
 		];
-		listDeployments.mockResolvedValue(deployments);
+		listDeploymentsFromCurrentContext.mockResolvedValue(deployments);
 
 		const response = await request(app.callback()).get(
 			"/api/namespaces/my-project/deployments",
@@ -119,7 +119,7 @@ describe("GET /api/namespaces/:namespace/deployments", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toMatchObject({ deployments });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listDeployments).toHaveBeenCalledWith("my-project");
+		expect(listDeploymentsFromCurrentContext).toHaveBeenCalledWith("my-project");
 	});
 
 	it("rejects invalid namespace params before calling the deployments service", async () => {
@@ -131,7 +131,7 @@ describe("GET /api/namespaces/:namespace/deployments", () => {
 
 		expect(response.status).toBe(400);
 		expect(response.body.error).toBe("Invalid namespace");
-		expect(listDeployments).not.toHaveBeenCalled();
+		expect(listDeploymentsFromCurrentContext).not.toHaveBeenCalled();
 	});
 });
 
@@ -145,7 +145,7 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 				restartCount: 3,
 			},
 		];
-		listPods.mockResolvedValue(pods);
+		listPodsFromCurrentContext.mockResolvedValue(pods);
 
 		const response = await request(app.callback()).get(
 			"/api/namespaces/my-project/pods",
@@ -154,11 +154,11 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toMatchObject({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listPods).toHaveBeenCalledWith("my-project");
+		expect(listPodsFromCurrentContext).toHaveBeenCalledWith("my-project");
 	});
 
 	it("handles an empty pod list from the pods service", async () => {
-		listPods.mockResolvedValue([]);
+		listPodsFromCurrentContext.mockResolvedValue([]);
 
 		const response = await request(app.callback()).get(
 			"/api/namespaces/empty-project/pods",
@@ -177,11 +177,11 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 
 		expect(response.status).toBe(400);
 		expect(response.body.error).toBe("Invalid namespace");
-		expect(listPods).not.toHaveBeenCalled();
+		expect(listPodsFromCurrentContext).not.toHaveBeenCalled();
 	});
 
 	it("handles pods service errors through shared error middleware", async () => {
-		listPods.mockRejectedValue(new KubernetesApiError("pods unavailable", 503));
+		listPodsFromCurrentContext.mockRejectedValue(new KubernetesApiError("pods unavailable", 503));
 
 		const response = await request(app.callback()).get(
 			"/api/namespaces/my-project/pods",
@@ -198,7 +198,7 @@ describe("GET /api/namespaces/:namespace/pods", () => {
 describe("GET /api/namespaces/:namespace/deployments/:deployment/pods", () => {
 	it("returns pods for a deployment", async () => {
 		const pods = [{ name: "api-123", status: "Running" }];
-		listPodsForDeployment.mockResolvedValue(pods);
+		listPodsForDeploymentFromCurrentContext.mockResolvedValue(pods);
 
 		const response = await request(app.callback()).get(
 			"/api/namespaces/my-project/deployments/api/pods",
@@ -208,7 +208,7 @@ describe("GET /api/namespaces/:namespace/deployments/:deployment/pods", () => {
 		expect(response.body).toMatchObject({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
 		expect(isValidDeployment).toHaveBeenCalledWith("api");
-		expect(listPodsForDeployment).toHaveBeenCalledWith("my-project", "api");
+		expect(listPodsForDeploymentFromCurrentContext).toHaveBeenCalledWith("my-project", "api");
 	});
 
 	it("rejects invalid deployment params", async () => {
@@ -220,6 +220,6 @@ describe("GET /api/namespaces/:namespace/deployments/:deployment/pods", () => {
 
 		expect(response.status).toBe(400);
 		expect(response.body.error).toBe("Invalid deployment");
-		expect(listPodsForDeployment).not.toHaveBeenCalled();
+		expect(listPodsForDeploymentFromCurrentContext).not.toHaveBeenCalled();
 	});
 });

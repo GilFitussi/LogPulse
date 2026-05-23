@@ -1,13 +1,13 @@
 const { createKubeClient } = require("../../src/service/kubeClient.service");
 const {
 	buildLabelSelector,
-	getDeployment,
-	listReplicaSetsForDeployment,
+	getDeploymentFromCurrentContext,
+	listReplicaSetsForDeploymentFromCurrentContext,
 } = require("../../src/service/deployments.service");
 const {
 	isValidPod,
-	listPods,
-	listPodsForDeployment,
+	listPodsFromCurrentContext,
+	listPodsForDeploymentFromCurrentContext,
 } = require("../../src/service/pods.service");
 
 jest.mock("../../src/service/kubeClient.service", () => ({
@@ -16,8 +16,8 @@ jest.mock("../../src/service/kubeClient.service", () => ({
 
 jest.mock("../../src/service/deployments.service", () => ({
 	buildLabelSelector: jest.fn(),
-	getDeployment: jest.fn(),
-	listReplicaSetsForDeployment: jest.fn(),
+	getDeploymentFromCurrentContext: jest.fn(),
+	listReplicaSetsForDeploymentFromCurrentContext: jest.fn(),
 }));
 
 describe("isValidPod", () => {
@@ -59,7 +59,7 @@ describe("listPods", () => {
 		});
 		createKubeClient.mockResolvedValue({ listNamespacedPod });
 
-		await expect(listPods("my-project")).resolves.toEqual([
+		await expect(listPodsFromCurrentContext("my-project")).resolves.toEqual([
 			{
 				name: "api-123",
 				status: "Running",
@@ -75,7 +75,7 @@ describe("listPods", () => {
 		const listNamespacedPod = jest.fn().mockResolvedValue({ items: [] });
 		createKubeClient.mockResolvedValue({ listNamespacedPod });
 
-		await expect(listPods("my-project", "app=api")).resolves.toEqual([]);
+		await expect(listPodsFromCurrentContext("my-project", "app=api")).resolves.toEqual([]);
 		expect(listNamespacedPod).toHaveBeenCalledWith({
 			labelSelector: "app=api",
 			namespace: "my-project",
@@ -87,7 +87,7 @@ describe("listPods", () => {
 			listNamespacedPod: jest.fn().mockResolvedValue({ body: { items: [] } }),
 		});
 
-		await expect(listPods("empty-project")).resolves.toEqual([]);
+		await expect(listPodsFromCurrentContext("empty-project")).resolves.toEqual([]);
 	});
 
 	it("returns an empty list when no pods are available", async () => {
@@ -95,7 +95,7 @@ describe("listPods", () => {
 			listNamespacedPod: jest.fn().mockResolvedValue({ items: [] }),
 		});
 
-		await expect(listPods("empty-project")).resolves.toEqual([]);
+		await expect(listPodsFromCurrentContext("empty-project")).resolves.toEqual([]);
 	});
 
 	it("filters inactive pods", async () => {
@@ -124,7 +124,7 @@ describe("listPods", () => {
 			}),
 		});
 
-		await expect(listPods("my-project")).resolves.toEqual([
+		await expect(listPodsFromCurrentContext("my-project")).resolves.toEqual([
 			{
 				name: "active-pod",
 				status: "Running",
@@ -147,7 +147,7 @@ describe("listPods", () => {
 			}),
 		});
 
-		await expect(listPods("my-project")).resolves.toEqual([]);
+		await expect(listPodsFromCurrentContext("my-project")).resolves.toEqual([]);
 	});
 
 	it("wraps Kubernetes client errors", async () => {
@@ -157,7 +157,7 @@ describe("listPods", () => {
 			}),
 		});
 
-		await expect(listPods("missing-project")).rejects.toMatchObject({
+		await expect(listPodsFromCurrentContext("missing-project")).rejects.toMatchObject({
 			status: 404,
 			message: "Pod not found",
 			details: "namespace not found",
@@ -170,9 +170,9 @@ describe("listPods", () => {
 describe("listPodsForDeployment", () => {
 	beforeEach(() => {
 		createKubeClient.mockReset();
-		getDeployment.mockReset();
+		getDeploymentFromCurrentContext.mockReset();
 		buildLabelSelector.mockReset();
-		listReplicaSetsForDeployment.mockReset();
+		listReplicaSetsForDeploymentFromCurrentContext.mockReset();
 	});
 
 	it("lists pods owned by the deployment replica sets", async () => {
@@ -209,14 +209,14 @@ describe("listPodsForDeployment", () => {
 				},
 			],
 		});
-		getDeployment.mockResolvedValue(deployment);
+		getDeploymentFromCurrentContext.mockResolvedValue(deployment);
 		buildLabelSelector.mockReturnValue("app=api");
-		listReplicaSetsForDeployment.mockResolvedValue([
+		listReplicaSetsForDeploymentFromCurrentContext.mockResolvedValue([
 			{ metadata: { uid: "rs-current" } },
 		]);
 		createKubeClient.mockResolvedValue({ listNamespacedPod });
 
-		await expect(listPodsForDeployment("my-project", "api")).resolves.toEqual([
+		await expect(listPodsForDeploymentFromCurrentContext("my-project", "api")).resolves.toEqual([
 			{
 				name: "api-current",
 				status: "Running",
@@ -225,9 +225,9 @@ describe("listPodsForDeployment", () => {
 				restartCount: undefined,
 			},
 		]);
-		expect(getDeployment).toHaveBeenCalledWith("my-project", "api");
+		expect(getDeploymentFromCurrentContext).toHaveBeenCalledWith("my-project", "api");
 		expect(buildLabelSelector).toHaveBeenCalledWith(deployment.spec.selector);
-		expect(listReplicaSetsForDeployment).toHaveBeenCalledWith(
+		expect(listReplicaSetsForDeploymentFromCurrentContext).toHaveBeenCalledWith(
 			"my-project",
 			"api",
 			"deployment-uid",
@@ -240,24 +240,24 @@ describe("listPodsForDeployment", () => {
 	});
 
 	it("returns an empty list when a deployment has no selector", async () => {
-		getDeployment.mockResolvedValue({ spec: {} });
+		getDeploymentFromCurrentContext.mockResolvedValue({ spec: {} });
 		buildLabelSelector.mockReturnValue("");
 
-		await expect(listPodsForDeployment("my-project", "api")).resolves.toEqual(
+		await expect(listPodsForDeploymentFromCurrentContext("my-project", "api")).resolves.toEqual(
 			[],
 		);
 		expect(createKubeClient).not.toHaveBeenCalled();
 	});
 
 	it("returns an empty list when the deployment has no replica sets", async () => {
-		getDeployment.mockResolvedValue({
+		getDeploymentFromCurrentContext.mockResolvedValue({
 			metadata: { uid: "deployment-uid" },
 			spec: { selector: { matchLabels: { app: "api" } } },
 		});
 		buildLabelSelector.mockReturnValue("app=api");
-		listReplicaSetsForDeployment.mockResolvedValue([]);
+		listReplicaSetsForDeploymentFromCurrentContext.mockResolvedValue([]);
 
-		await expect(listPodsForDeployment("my-project", "api")).resolves.toEqual(
+		await expect(listPodsForDeploymentFromCurrentContext("my-project", "api")).resolves.toEqual(
 			[],
 		);
 		expect(createKubeClient).not.toHaveBeenCalled();

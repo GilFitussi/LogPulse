@@ -64,7 +64,7 @@ describe("GET /api/clusters/:clusterId/namespaces", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ namespaces: ["dev", "prod"] });
 		expect(getClusterById).toHaveBeenCalledWith(1);
-		expect(listNamespaces).toHaveBeenCalledTimes(1);
+		expect(listNamespaces).toHaveBeenCalledWith(1);
 	});
 
 	it("returns 404 when the cluster does not exist", async () => {
@@ -92,7 +92,7 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments", () =>
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ deployments });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listDeployments).toHaveBeenCalledWith("my-project");
+		expect(listDeployments).toHaveBeenCalledWith(1, "my-project");
 	});
 
 	it("rejects invalid namespace params", async () => {
@@ -120,7 +120,7 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/pods", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listPods).toHaveBeenCalledWith("my-project");
+		expect(listPods).toHaveBeenCalledWith(1, "my-project");
 	});
 });
 
@@ -137,7 +137,7 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments/:deploy
 		expect(response.body).toEqual({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
 		expect(isValidDeployment).toHaveBeenCalledWith("api");
-		expect(listPodsForDeployment).toHaveBeenCalledWith("my-project", "api");
+		expect(listPodsForDeployment).toHaveBeenCalledWith(1, "my-project", "api");
 	});
 
 	it("rejects invalid deployment params", async () => {
