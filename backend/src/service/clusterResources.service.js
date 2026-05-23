@@ -1,3 +1,6 @@
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const { Writable } = require("node:stream");
 const { finished } = require("node:stream/promises");
 const { AppError } = require("../errors/app.error");
@@ -15,7 +18,6 @@ const {
 } = require("./ocCommand.service");
 
 const CLUSTER_NOT_CONNECTED_MESSAGE = "Cluster is not connected";
-const OC_KUBECONFIG_STDIN_PATH = "/dev/stdin";
 
 async function requireCluster(clusterId) {
 	const cluster = await getClusterById(clusterId);
@@ -114,13 +116,28 @@ function buildLabelSelector(matchLabels) {
 	return labels.length > 0 ? labels.join(",") : undefined;
 }
 
+async function withTempKubeconfig(kubeconfigContent, callback) {
+	const tempDirectory = await fs.mkdtemp(
+		path.join(os.tmpdir(), "logpulse-kubeconfig-"),
+	);
+	const kubeconfigPath = path.join(tempDirectory, "config");
+
+	try {
+		await fs.writeFile(kubeconfigPath, kubeconfigContent, "utf8");
+		return await callback(kubeconfigPath);
+	} finally {
+		await fs.rm(tempDirectory, { recursive: true, force: true });
+	}
+}
+
 async function listClusterNamespaces(clusterId) {
 	const session = await requireActiveClusterSession(clusterId);
 
 	try {
-		const { stdout } = await runOcCommand(
-			["--kubeconfig", OC_KUBECONFIG_STDIN_PATH, "projects", "-q"],
-			{ input: session.kubeconfigContent },
+		const { stdout } = await withTempKubeconfig(
+			session.kubeconfigContent,
+			(kubeconfigPath) =>
+				runOcCommand(["--kubeconfig", kubeconfigPath, "projects", "-q"]),
 		);
 
 		return stdout

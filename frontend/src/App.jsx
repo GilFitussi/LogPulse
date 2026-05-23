@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ClusterNamespaceWorkspace } from "@/components/cluster-namespace-workspace";
 import { ClustersSidebar } from "@/components/clusters-sidebar";
 import {
 	AppShell,
@@ -78,16 +79,7 @@ function getWorkspaceStatusConfig(cluster) {
 
 function SelectedClusterWorkspaceHeader({ cluster }) {
 	if (!cluster) {
-		return (
-			<div className="mb-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2">
-				<p className="text-sm font-medium text-foreground">
-					No cluster workspace selected
-				</p>
-				<p className="mt-0.5 text-xs text-muted-foreground">
-					Select a cluster from the sidebar to make it the current workspace.
-				</p>
-			</div>
-		);
+		return null;
 	}
 
 	const statusConfig = getWorkspaceStatusConfig(cluster);
@@ -356,9 +348,10 @@ function App() {
 					/>
 					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
 						<SelectedClusterWorkspaceHeader cluster={selectedCluster} />
-						<div className="mt-2 flex h-[35rem] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-							Cluster-scoped resources are not implemented yet.
-						</div>
+						<ClusterNamespaceWorkspace
+							cluster={selectedCluster}
+							apiBaseUrl={API_BASE_URL}
+						/>
 					</Panel>
 				</ContentLayout>
 			</PageContainer>
