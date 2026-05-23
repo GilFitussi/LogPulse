@@ -8,10 +8,23 @@ const {
 	listDeployments,
 } = require("../service/deployments.service");
 const { listPods, listPodsForDeployment } = require("../service/pods.service");
+const { getClusterById } = require("../service/clusterManager.service");
 
-// Legacy namespace-scoped routes kept temporarily for compatibility.
-// Prefer cluster-scoped routes in cluster-resources.routes.js for new clients.
-const router = new Router({ prefix: "/api" });
+const router = new Router({ prefix: "/api/clusters/:clusterId" });
+
+router.use(async (ctx, next) => {
+	const clusterId = parseClusterId(ctx.params.clusterId);
+	const cluster = await getClusterById(clusterId);
+
+	if (!cluster) {
+		ctx.status = 404;
+		ctx.body = { error: "Cluster not found" };
+		return;
+	}
+
+	ctx.state.cluster = cluster;
+	await next();
+});
 
 router.get("/namespaces", async (ctx) => {
 	ctx.body = { namespaces: await listNamespaces() };
@@ -20,9 +33,7 @@ router.get("/namespaces", async (ctx) => {
 router.get("/namespaces/:namespace/deployments", async (ctx) => {
 	const { namespace } = ctx.params;
 
-	if (!isValidNamespace(namespace)) {
-		ctx.throw(400, "Invalid namespace");
-	}
+	validateNamespace(ctx, namespace);
 
 	ctx.body = { deployments: await listDeployments(namespace) };
 });
@@ -30,9 +41,7 @@ router.get("/namespaces/:namespace/deployments", async (ctx) => {
 router.get("/namespaces/:namespace/pods", async (ctx) => {
 	const { namespace } = ctx.params;
 
-	if (!isValidNamespace(namespace)) {
-		ctx.throw(400, "Invalid namespace");
-	}
+	validateNamespace(ctx, namespace);
 
 	ctx.body = { pods: await listPods(namespace) };
 });
@@ -42,16 +51,28 @@ router.get(
 	async (ctx) => {
 		const { namespace, deployment } = ctx.params;
 
-		if (!isValidNamespace(namespace)) {
-			ctx.throw(400, "Invalid namespace");
-		}
-
-		if (!isValidDeployment(deployment)) {
-			ctx.throw(400, "Invalid deployment");
-		}
+		validateNamespace(ctx, namespace);
+		validateDeployment(ctx, deployment);
 
 		ctx.body = { pods: await listPodsForDeployment(namespace, deployment) };
 	},
 );
+
+function validateNamespace(ctx, namespace) {
+	if (!isValidNamespace(namespace)) {
+		ctx.throw(400, "Invalid namespace");
+	}
+}
+
+function validateDeployment(ctx, deployment) {
+	if (!isValidDeployment(deployment)) {
+		ctx.throw(400, "Invalid deployment");
+	}
+}
+
+function parseClusterId(clusterId) {
+	const id = Number(clusterId);
+	return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 module.exports = router;
