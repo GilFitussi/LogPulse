@@ -1,8 +1,12 @@
+const { getClusterById } = require("../../src/service/clusterManager.service");
+const { runOcCommand } = require("../../src/service/ocCommand.service");
 const { createKubeClient } = require("../../src/service/kubeClient.service");
 const {
 	buildLabelSelector,
 	getDeployment,
+	getDeploymentFromCurrentContext,
 	listReplicaSetsForDeployment,
+	listReplicaSetsForDeploymentFromCurrentContext,
 } = require("../../src/service/deployments.service");
 const {
 	isValidPod,
@@ -14,10 +18,20 @@ jest.mock("../../src/service/kubeClient.service", () => ({
 	createKubeClient: jest.fn(),
 }));
 
+jest.mock("../../src/service/ocCommand.service", () => ({
+	runOcCommand: jest.fn(),
+}));
+
+jest.mock("../../src/service/clusterManager.service", () => ({
+	getClusterById: jest.fn(),
+}));
+
 jest.mock("../../src/service/deployments.service", () => ({
 	buildLabelSelector: jest.fn(),
 	getDeployment: jest.fn(),
+	getDeploymentFromCurrentContext: jest.fn(),
 	listReplicaSetsForDeployment: jest.fn(),
+	listReplicaSetsForDeploymentFromCurrentContext: jest.fn(),
 }));
 
 describe("isValidPod", () => {
@@ -38,6 +52,12 @@ describe("isValidPod", () => {
 describe("listPods", () => {
 	beforeEach(() => {
 		createKubeClient.mockReset();
+		runOcCommand.mockReset();
+		getClusterById.mockReset();
+		getClusterById.mockResolvedValue({
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		});
 	});
 
 	it("lists pods in the requested namespace", async () => {
@@ -150,6 +170,55 @@ describe("listPods", () => {
 		await expect(listPods("my-project")).resolves.toEqual([]);
 	});
 
+	it("lists pods against the selected cluster", async () => {
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					{
+						metadata: { name: "api-123", labels: { app: "api" } },
+						status: {
+							phase: "Running",
+							conditions: [{ type: "Ready", status: "True" }],
+						},
+					},
+				],
+			}),
+		});
+
+		await expect(listPods(1, "my-project")).resolves.toEqual([
+			{
+				name: "api-123",
+				status: "Running",
+				labels: { app: "api" },
+				ready: true,
+				restartCount: undefined,
+			},
+		]);
+		expect(getClusterById).toHaveBeenCalledWith(1);
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"pods",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+			"--server",
+			"https://api.dev.example.com:6443",
+		]);
+		expect(createKubeClient).not.toHaveBeenCalled();
+	});
+
+	it("throws when the selected cluster does not exist", async () => {
+		getClusterById.mockResolvedValue(null);
+
+		await expect(listPods(999, "my-project")).rejects.toMatchObject({
+			status: 404,
+			message: "Cluster not found",
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(runOcCommand).not.toHaveBeenCalled();
+	});
+
 	it("wraps Kubernetes client errors", async () => {
 		createKubeClient.mockResolvedValue({
 			listNamespacedPod: jest.fn().mockRejectedValue({
@@ -170,9 +239,17 @@ describe("listPods", () => {
 describe("listPodsForDeployment", () => {
 	beforeEach(() => {
 		createKubeClient.mockReset();
+		runOcCommand.mockReset();
+		getClusterById.mockReset();
+		getClusterById.mockResolvedValue({
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		});
 		getDeployment.mockReset();
+		getDeploymentFromCurrentContext.mockReset();
 		buildLabelSelector.mockReset();
 		listReplicaSetsForDeployment.mockReset();
+		listReplicaSetsForDeploymentFromCurrentContext.mockReset();
 	});
 
 	it("lists pods owned by the deployment replica sets", async () => {
@@ -237,6 +314,66 @@ describe("listPodsForDeployment", () => {
 			labelSelector: "app=api",
 			namespace: "my-project",
 		});
+	});
+
+	it("lists deployment pods against the selected cluster", async () => {
+		const deployment = {
+			metadata: { uid: "deployment-uid" },
+			spec: { selector: { matchLabels: { app: "api" } } },
+		};
+		getDeployment.mockResolvedValue(deployment);
+		buildLabelSelector.mockReturnValue("app=api");
+		listReplicaSetsForDeployment.mockResolvedValue([
+			{ metadata: { uid: "rs-current" } },
+		]);
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					{
+						metadata: {
+							name: "api-current",
+							ownerReferences: [{ kind: "ReplicaSet", uid: "rs-current" }],
+						},
+						status: {
+							phase: "Running",
+							conditions: [{ type: "Ready", status: "True" }],
+						},
+					},
+				],
+			}),
+		});
+
+		await expect(
+			listPodsForDeployment(1, "my-project", "api"),
+		).resolves.toEqual([
+			{
+				name: "api-current",
+				status: "Running",
+				labels: {},
+				ready: true,
+				restartCount: undefined,
+			},
+		]);
+		expect(getDeployment).toHaveBeenCalledWith(1, "my-project", "api");
+		expect(listReplicaSetsForDeployment).toHaveBeenCalledWith(
+			1,
+			"my-project",
+			"api",
+			"deployment-uid",
+			"app=api",
+		);
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"pods",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+			"-l",
+			"app=api",
+			"--server",
+			"https://api.dev.example.com:6443",
+		]);
 	});
 
 	it("returns an empty list when a deployment has no selector", async () => {

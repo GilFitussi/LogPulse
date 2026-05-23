@@ -2,6 +2,7 @@ const request = require("supertest");
 
 jest.mock("../src/service/kubeClient.service", () => ({
   createKubeClient: jest.fn(),
+  createKubeConfig: jest.fn(),
 }));
 
 const app = require("../src/app");

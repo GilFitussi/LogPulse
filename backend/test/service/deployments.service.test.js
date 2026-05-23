@@ -1,9 +1,5 @@
-jest.mock("@kubernetes/client-node", () => ({
-	AppsV1Api: class AppsV1Api {},
-}));
-
-const k8s = require("@kubernetes/client-node");
-const { createKubeClient } = require("../../src/service/kubeClient.service");
+const { getClusterById } = require("../../src/service/clusterManager.service");
+const { runOcCommand } = require("../../src/service/ocCommand.service");
 const {
 	buildLabelSelector,
 	isValidDeployment,
@@ -11,8 +7,12 @@ const {
 	listReplicaSetsForDeployment,
 } = require("../../src/service/deployments.service");
 
-jest.mock("../../src/service/kubeClient.service", () => ({
-	createKubeClient: jest.fn(),
+jest.mock("../../src/service/ocCommand.service", () => ({
+	runOcCommand: jest.fn(),
+}));
+
+jest.mock("../../src/service/clusterManager.service", () => ({
+	getClusterById: jest.fn(),
 }));
 
 describe("isValidDeployment", () => {
@@ -46,20 +46,26 @@ describe("buildLabelSelector", () => {
 
 describe("listDeployments", () => {
 	beforeEach(() => {
-		createKubeClient.mockReset();
+		runOcCommand.mockReset();
+		getClusterById.mockReset();
+		getClusterById.mockResolvedValue({
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		});
 	});
 
 	it("lists deployments in the requested namespace", async () => {
-		const listNamespacedDeployment = jest.fn().mockResolvedValue({
-			items: [
-				{
-					metadata: { name: "api", labels: { app: "api" } },
-					spec: { replicas: 2, selector: { matchLabels: { app: "api" } } },
-					status: { readyReplicas: 1, availableReplicas: 1 },
-				},
-			],
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					{
+						metadata: { name: "api", labels: { app: "api" } },
+						spec: { replicas: 2, selector: { matchLabels: { app: "api" } } },
+						status: { readyReplicas: 1, availableReplicas: 1 },
+					},
+				],
+			}),
 		});
-		createKubeClient.mockResolvedValue({ listNamespacedDeployment });
 
 		await expect(listDeployments("my-project")).resolves.toEqual([
 			{
@@ -71,17 +77,69 @@ describe("listDeployments", () => {
 				availableReplicas: 1,
 			},
 		]);
-		expect(createKubeClient).toHaveBeenCalledWith(k8s.AppsV1Api);
-		expect(listNamespacedDeployment).toHaveBeenCalledWith({
-			namespace: "my-project",
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"deployments",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+		]);
+	});
+
+	it("lists deployments against the selected cluster", async () => {
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					{
+						metadata: { name: "api", labels: { app: "api" } },
+						spec: {
+							replicas: 2,
+							selector: { matchLabels: { app: "api" } },
+						},
+						status: { readyReplicas: 1, availableReplicas: 1 },
+					},
+				],
+			}),
 		});
+
+		await expect(listDeployments(1, "my-project")).resolves.toEqual([
+			{
+				name: "api",
+				labels: { app: "api" },
+				selector: "app=api",
+				replicas: 2,
+				readyReplicas: 1,
+				availableReplicas: 1,
+			},
+		]);
+		expect(getClusterById).toHaveBeenCalledWith(1);
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"deployments",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+			"--server",
+			"https://api.dev.example.com:6443",
+		]);
+	});
+
+	it("throws when the selected cluster does not exist", async () => {
+		getClusterById.mockResolvedValue(null);
+
+		await expect(listDeployments(999, "my-project")).rejects.toMatchObject({
+			status: 404,
+			message: "Cluster not found",
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(runOcCommand).not.toHaveBeenCalled();
 	});
 
 	it("wraps Kubernetes client errors", async () => {
-		createKubeClient.mockResolvedValue({
-			listNamespacedDeployment: jest.fn().mockRejectedValue({
-				response: { statusCode: 403, body: { message: "forbidden" } },
-			}),
+		runOcCommand.mockRejectedValue({
+			response: { statusCode: 403, body: { message: "forbidden" } },
 		});
 
 		await expect(listDeployments("my-project")).rejects.toMatchObject({
@@ -93,7 +151,52 @@ describe("listDeployments", () => {
 
 describe("listReplicaSetsForDeployment", () => {
 	beforeEach(() => {
-		createKubeClient.mockReset();
+		runOcCommand.mockReset();
+		getClusterById.mockReset();
+		getClusterById.mockResolvedValue({
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		});
+	});
+
+	it("lists replica sets against the selected cluster", async () => {
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					{
+						metadata: {
+							uid: "rs-current",
+							ownerReferences: [
+								{ kind: "Deployment", name: "api", uid: "deployment-uid" },
+							],
+						},
+					},
+				],
+			}),
+		});
+
+		const replicaSets = await listReplicaSetsForDeployment(
+			1,
+			"my-project",
+			"api",
+			"deployment-uid",
+			"app=api",
+		);
+
+		expect(replicaSets).toHaveLength(1);
+		expect(replicaSets[0].metadata.uid).toBe("rs-current");
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"replicasets",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+			"-l",
+			"app=api",
+			"--server",
+			"https://api.dev.example.com:6443",
+		]);
 	});
 
 	it("lists only replica sets owned by the selected deployment", async () => {
@@ -105,20 +208,21 @@ describe("listReplicaSetsForDeployment", () => {
 				],
 			},
 		};
-		const listNamespacedReplicaSet = jest.fn().mockResolvedValue({
-			items: [
-				ownedReplicaSet,
-				{
-					metadata: {
-						uid: "rs-other",
-						ownerReferences: [
-							{ kind: "Deployment", name: "other", uid: "other-uid" },
-						],
+		runOcCommand.mockResolvedValue({
+			stdout: JSON.stringify({
+				items: [
+					ownedReplicaSet,
+					{
+						metadata: {
+							uid: "rs-other",
+							ownerReferences: [
+								{ kind: "Deployment", name: "other", uid: "other-uid" },
+							],
+						},
 					},
-				},
-			],
+				],
+			}),
 		});
-		createKubeClient.mockResolvedValue({ listNamespacedReplicaSet });
 
 		await expect(
 			listReplicaSetsForDeployment(
@@ -128,10 +232,15 @@ describe("listReplicaSetsForDeployment", () => {
 				"app=api",
 			),
 		).resolves.toEqual([ownedReplicaSet]);
-		expect(createKubeClient).toHaveBeenCalledWith(k8s.AppsV1Api);
-		expect(listNamespacedReplicaSet).toHaveBeenCalledWith({
-			labelSelector: "app=api",
-			namespace: "my-project",
-		});
+		expect(runOcCommand).toHaveBeenCalledWith([
+			"get",
+			"replicasets",
+			"-n",
+			"my-project",
+			"-o",
+			"json",
+			"-l",
+			"app=api",
+		]);
 	});
 });

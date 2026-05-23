@@ -1,4 +1,5 @@
 const childProcess = require("node:child_process");
+const { getClusterById } = require("../../src/service/clusterManager.service");
 const {
 	isValidNamespace,
 	listNamespaces,
@@ -6,6 +7,10 @@ const {
 
 jest.mock("node:child_process", () => ({
 	execFile: jest.fn(),
+}));
+
+jest.mock("../../src/service/clusterManager.service", () => ({
+	getClusterById: jest.fn(),
 }));
 
 function mockOcCommand(handler) {
@@ -34,6 +39,11 @@ describe("isValidNamespace", () => {
 describe("listNamespaces", () => {
 	beforeEach(() => {
 		childProcess.execFile.mockReset();
+		getClusterById.mockReset();
+		getClusterById.mockResolvedValue({
+			id: 1,
+			apiUrl: "https://api.dev.example.com:6443",
+		});
 	});
 
 	it("returns OpenShift project names visible to the current user", async () => {
@@ -44,6 +54,33 @@ describe("listNamespaces", () => {
 		});
 
 		await expect(listNamespaces()).resolves.toEqual(["dev", "prod"]);
+	});
+
+	it("lists namespaces against the selected cluster", async () => {
+		mockOcCommand(({ command, args, callback }) => {
+			expect(command).toBe("oc");
+			expect(args).toEqual([
+				"projects",
+				"-q",
+				"--server",
+				"https://api.dev.example.com:6443",
+			]);
+			callback(null, "dev\nprod\n", "");
+		});
+
+		await expect(listNamespaces(1)).resolves.toEqual(["dev", "prod"]);
+		expect(getClusterById).toHaveBeenCalledWith(1);
+	});
+
+	it("throws when the selected cluster does not exist", async () => {
+		getClusterById.mockResolvedValue(null);
+
+		await expect(listNamespaces(999)).rejects.toMatchObject({
+			status: 404,
+			message: "Cluster not found",
+			code: "CLUSTER_NOT_FOUND",
+		});
+		expect(childProcess.execFile).not.toHaveBeenCalled();
 	});
 
 	it("throws an OpenShift auth error when oc is not logged in", async () => {

@@ -1,5 +1,11 @@
 const { KubernetesApiError } = require("../errors/app.error");
 const { createKubeClient } = require("./kubeClient.service");
+const { runOcCommand } = require("./ocCommand.service");
+const {
+	isClusterId,
+	resolveCluster,
+	withClusterServer,
+} = require("./clusterResourceTarget.service");
 const {
 	buildLabelSelector,
 	getDeployment,
@@ -63,7 +69,30 @@ function mapPod(pod) {
 	};
 }
 
-async function listPodResources(namespace, labelSelector) {
+function parseJson(stdout, fallback) {
+	const text = stdout?.trim();
+
+	if (!text) {
+		return fallback;
+	}
+
+	return JSON.parse(text);
+}
+
+async function listPodResources(clusterId, namespace, labelSelector) {
+	const cluster = await resolveCluster(clusterId);
+	const args = ["get", "pods", "-n", namespace, "-o", "json"];
+	if (labelSelector) {
+		args.push("-l", labelSelector);
+	}
+
+	const { stdout } = await runOcCommand(withClusterServer(args, cluster));
+	const podList = parseJson(stdout, { items: [] });
+
+	return podList?.items || [];
+}
+
+async function listPodResourcesFromCurrentContext(namespace, labelSelector) {
 	const client = await createKubeClient();
 	const response = await client.listNamespacedPod({
 		namespace,
@@ -74,9 +103,15 @@ async function listPodResources(namespace, labelSelector) {
 	return podList?.items || [];
 }
 
-async function listPods(namespace, labelSelector) {
+async function listPods(namespaceOrClusterId, namespace, labelSelector) {
+	if (!isClusterId(namespaceOrClusterId)) {
+		return listPodsFromCurrentContext(namespaceOrClusterId, namespace);
+	}
+
 	try {
-		return (await listPodResources(namespace, labelSelector))
+		return (
+			await listPodResources(namespaceOrClusterId, namespace, labelSelector)
+		)
 			.filter(isActivePod)
 			.map(mapPod);
 	} catch (error) {
@@ -84,7 +119,71 @@ async function listPods(namespace, labelSelector) {
 	}
 }
 
-async function listPodsForDeployment(namespace, deploymentName) {
+async function listPodsFromCurrentContext(namespace, labelSelector) {
+	try {
+		return (await listPodResourcesFromCurrentContext(namespace, labelSelector))
+			.filter(isActivePod)
+			.map(mapPod);
+	} catch (error) {
+		throw KubernetesApiError.from(error);
+	}
+}
+
+async function listPodsForDeployment(
+	namespaceOrClusterId,
+	namespaceOrDeployment,
+	deploymentName,
+) {
+	if (!isClusterId(namespaceOrClusterId)) {
+		return listPodsForDeploymentFromCurrentContext(
+			namespaceOrClusterId,
+			namespaceOrDeployment,
+		);
+	}
+
+	const namespace = namespaceOrDeployment;
+	const deployment = await getDeployment(
+		namespaceOrClusterId,
+		namespace,
+		deploymentName,
+	);
+	const labelSelector = buildLabelSelector(deployment.spec?.selector);
+
+	if (!labelSelector) {
+		return [];
+	}
+
+	const replicaSets = await listReplicaSetsForDeployment(
+		namespaceOrClusterId,
+		namespace,
+		deploymentName,
+		deployment.metadata?.uid,
+		labelSelector,
+	);
+	const replicaSetUids = new Set(
+		replicaSets.map((replicaSet) => replicaSet.metadata?.uid).filter(Boolean),
+	);
+
+	if (replicaSetUids.size === 0) {
+		return [];
+	}
+
+	try {
+		return (
+			await listPodResources(namespaceOrClusterId, namespace, labelSelector)
+		)
+			.filter(isActivePod)
+			.filter((pod) => isPodOwnedByReplicaSet(pod, replicaSetUids))
+			.map(mapPod);
+	} catch (error) {
+		throw KubernetesApiError.from(error);
+	}
+}
+
+async function listPodsForDeploymentFromCurrentContext(
+	namespace,
+	deploymentName,
+) {
 	const deployment = await getDeployment(namespace, deploymentName);
 	const labelSelector = buildLabelSelector(deployment.spec?.selector);
 
@@ -107,7 +206,7 @@ async function listPodsForDeployment(namespace, deploymentName) {
 	}
 
 	try {
-		return (await listPodResources(namespace, labelSelector))
+		return (await listPodResourcesFromCurrentContext(namespace, labelSelector))
 			.filter(isActivePod)
 			.filter((pod) => isPodOwnedByReplicaSet(pod, replicaSetUids))
 			.map(mapPod);
@@ -119,5 +218,7 @@ async function listPodsForDeployment(namespace, deploymentName) {
 module.exports = {
 	isValidPod,
 	listPods,
+	listPodsFromCurrentContext,
 	listPodsForDeployment,
+	listPodsForDeploymentFromCurrentContext,
 };

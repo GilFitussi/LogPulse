@@ -1,5 +1,4 @@
 const http = require("http");
-const app = require("../../src/app");
 const { createLogBatcher } = require("../../src/api/logs.route");
 const { streamPodLogs } = require("../../src/service/logs.service");
 const { isValidNamespace } = require("../../src/service/namespaces.service");
@@ -16,6 +15,13 @@ jest.mock("../../src/service/namespaces.service", () => ({
 jest.mock("../../src/service/pods.service", () => ({
 	isValidPod: jest.fn(() => true),
 }));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
+}));
+
+const app = require("../../src/app");
 
 function waitForTick() {
 	return new Promise((resolve) => setImmediate(resolve));

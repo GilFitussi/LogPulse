@@ -40,6 +40,11 @@ jest.mock("../../src/service/pods.service", () => ({
 	listPodsForDeployment: jest.fn(),
 }));
 
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
+}));
+
 const app = require("../../src/app");
 
 beforeEach(() => {

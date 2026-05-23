@@ -27,7 +27,7 @@ router.use(async (ctx, next) => {
 });
 
 router.get("/namespaces", async (ctx) => {
-	ctx.body = { namespaces: await listNamespaces() };
+	ctx.body = { namespaces: await listNamespaces(ctx.state.cluster.id) };
 });
 
 router.get("/namespaces/:namespace/deployments", async (ctx) => {
@@ -35,7 +35,9 @@ router.get("/namespaces/:namespace/deployments", async (ctx) => {
 
 	validateNamespace(ctx, namespace);
 
-	ctx.body = { deployments: await listDeployments(namespace) };
+	ctx.body = {
+		deployments: await listDeployments(ctx.state.cluster.id, namespace),
+	};
 });
 
 router.get("/namespaces/:namespace/pods", async (ctx) => {
@@ -43,7 +45,7 @@ router.get("/namespaces/:namespace/pods", async (ctx) => {
 
 	validateNamespace(ctx, namespace);
 
-	ctx.body = { pods: await listPods(namespace) };
+	ctx.body = { pods: await listPods(ctx.state.cluster.id, namespace) };
 });
 
 router.get(
@@ -54,7 +56,13 @@ router.get(
 		validateNamespace(ctx, namespace);
 		validateDeployment(ctx, deployment);
 
-		ctx.body = { pods: await listPodsForDeployment(namespace, deployment) };
+		ctx.body = {
+			pods: await listPodsForDeployment(
+				ctx.state.cluster.id,
+				namespace,
+				deployment,
+			),
+		};
 	},
 );
 

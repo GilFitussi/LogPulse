@@ -5,11 +5,11 @@ const {
 } = require("../../src/service/namespaces.service");
 const {
 	isValidDeployment,
-	listDeployments,
+	listDeploymentsFromCurrentContext: listDeployments,
 } = require("../../src/service/deployments.service");
 const {
-	listPods,
-	listPodsForDeployment,
+	listPodsFromCurrentContext: listPods,
+	listPodsForDeploymentFromCurrentContext: listPodsForDeployment,
 } = require("../../src/service/pods.service");
 const {
 	KubernetesApiError,
@@ -23,12 +23,17 @@ jest.mock("../../src/service/namespaces.service", () => ({
 
 jest.mock("../../src/service/deployments.service", () => ({
 	isValidDeployment: jest.fn(() => true),
-	listDeployments: jest.fn(),
+	listDeploymentsFromCurrentContext: jest.fn(),
 }));
 
 jest.mock("../../src/service/pods.service", () => ({
-	listPods: jest.fn(),
-	listPodsForDeployment: jest.fn(),
+	listPodsFromCurrentContext: jest.fn(),
+	listPodsForDeploymentFromCurrentContext: jest.fn(),
+}));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
 }));
 
 const app = require("../../src/app");

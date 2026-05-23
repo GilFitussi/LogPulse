@@ -1,6 +1,7 @@
 const { Writable } = require("stream");
 const fetch = require("node-fetch");
 const { KubernetesApiError } = require("../errors/app.error");
+const { createKubeConfig } = require("./kubeClient.service");
 
 const TIMESTAMP_PREFIX =
 	/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s+(.*)$/;
@@ -99,7 +100,6 @@ async function resolveLogContainer(
 
 async function streamPodLogs(namespace, pod, onLogLine, container) {
 	try {
-		const { createKubeConfig } = require("./kubeClient.service");
 		const kubeConfig = await createKubeConfig();
 		const cluster = kubeConfig.getCurrentCluster();
 

@@ -5,9 +5,12 @@ const {
 } = require("../service/namespaces.service");
 const {
 	isValidDeployment,
-	listDeployments,
+	listDeploymentsFromCurrentContext,
 } = require("../service/deployments.service");
-const { listPods, listPodsForDeployment } = require("../service/pods.service");
+const {
+	listPodsFromCurrentContext,
+	listPodsForDeploymentFromCurrentContext,
+} = require("../service/pods.service");
 
 // Legacy namespace-scoped routes kept temporarily for compatibility.
 // Prefer cluster-scoped routes in cluster-resources.routes.js for new clients.
@@ -24,7 +27,9 @@ router.get("/namespaces/:namespace/deployments", async (ctx) => {
 		ctx.throw(400, "Invalid namespace");
 	}
 
-	ctx.body = { deployments: await listDeployments(namespace) };
+	ctx.body = {
+		deployments: await listDeploymentsFromCurrentContext(namespace),
+	};
 });
 
 router.get("/namespaces/:namespace/pods", async (ctx) => {
@@ -34,7 +39,7 @@ router.get("/namespaces/:namespace/pods", async (ctx) => {
 		ctx.throw(400, "Invalid namespace");
 	}
 
-	ctx.body = { pods: await listPods(namespace) };
+	ctx.body = { pods: await listPodsFromCurrentContext(namespace) };
 });
 
 router.get(
@@ -50,7 +55,12 @@ router.get(
 			ctx.throw(400, "Invalid deployment");
 		}
 
-		ctx.body = { pods: await listPodsForDeployment(namespace, deployment) };
+		ctx.body = {
+			pods: await listPodsForDeploymentFromCurrentContext(
+				namespace,
+				deployment,
+			),
+		};
 	},
 );
 
