@@ -133,6 +133,7 @@ function ClusterStatusBadge({ cluster }) {
 function ClusterFormModal({
 	cluster,
 	onSubmitCluster,
+	onOpenModalChange,
 	trigger,
 	mode = "create",
 }) {
@@ -158,6 +159,7 @@ function ClusterFormModal({
 
 	const handleOpenChange = (nextOpen) => {
 		setIsOpen(nextOpen);
+		onOpenModalChange?.(nextOpen);
 
 		if (nextOpen) {
 			setFormValues(getClusterFormValues(cluster));
@@ -301,7 +303,12 @@ function ClusterFormModal({
 	);
 }
 
-function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
+function ClusterLoginModal({
+	cluster,
+	onLoginCluster,
+	onOpenModalChange,
+	trigger,
+}) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [loginMethod, setLoginMethod] = useState("credentials");
 	const [username, setUsername] = useState("");
@@ -329,6 +336,7 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 
 	const handleOpenChange = (nextOpen) => {
 		setIsOpen(nextOpen);
+		onOpenModalChange?.(nextOpen);
 
 		if (!nextOpen) {
 			resetForm();
@@ -521,13 +529,14 @@ function ClusterLoginModal({ cluster, onLoginCluster, trigger }) {
 	);
 }
 
-function LogoutClusterDialog({ cluster, onLogoutCluster }) {
+function LogoutClusterDialog({ cluster, onLogoutCluster, onOpenModalChange }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [error, setError] = useState("");
 	const [isLoggingOut, setIsLoggingOut] = useState(false);
 
 	const handleOpenChange = (nextOpen) => {
 		setIsOpen(nextOpen);
+		onOpenModalChange?.(nextOpen);
 
 		if (!nextOpen) {
 			setError("");
@@ -594,13 +603,14 @@ function LogoutClusterDialog({ cluster, onLogoutCluster }) {
 	);
 }
 
-function DeleteClusterDialog({ cluster, onDeleteCluster }) {
+function DeleteClusterDialog({ cluster, onDeleteCluster, onOpenModalChange }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [error, setError] = useState("");
 	const [isDeleting, setIsDeleting] = useState(false);
 
 	const handleOpenChange = (nextOpen) => {
 		setIsOpen(nextOpen);
+		onOpenModalChange?.(nextOpen);
 
 		if (!nextOpen) {
 			setError("");
@@ -668,6 +678,128 @@ function DeleteClusterDialog({ cluster, onDeleteCluster }) {
 				</Dialog.Content>
 			</Dialog.Portal>
 		</Dialog.Root>
+	);
+}
+
+function ClusterListItem({
+	cluster,
+	isSelected,
+	onDeleteCluster,
+	onLoginCluster,
+	onLogoutCluster,
+	onSelectCluster,
+	onUpdateCluster,
+}) {
+	const [isActionsOpen, setIsActionsOpen] = useState(false);
+	const isConnected =
+		String(cluster.lastConnectionStatus || "").toLowerCase() === "connected";
+	const handleModalOpenChange = (isOpen) => {
+		if (isOpen) {
+			setIsActionsOpen(false);
+		}
+	};
+
+	return (
+		<div
+			role="listitem"
+			className={cn(
+				"relative rounded-md border transition-colors",
+				isSelected
+					? "border-primary/45 bg-primary/10 shadow-sm"
+					: "border-transparent hover:border-border hover:bg-muted/50",
+			)}
+		>
+			<button
+				type="button"
+				onClick={() => onSelectCluster(cluster.id)}
+				aria-current={isSelected ? "true" : undefined}
+				className="w-full rounded-md p-2 pr-9 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+			>
+				<div className="flex items-start justify-between gap-2">
+					<div className="min-w-0">
+						<p className="truncate text-sm font-medium text-foreground">
+							{cluster.name}
+						</p>
+						<p className="mt-0.5 truncate text-xs text-muted-foreground">
+							{cluster.apiUrl}
+						</p>
+					</div>
+					{isSelected ? (
+						<span className="mt-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+							Selected
+						</span>
+					) : null}
+				</div>
+				<div className="mt-2 flex flex-wrap items-center gap-1.5">
+					<ClusterStatusBadge cluster={cluster} />
+					{cluster.defaultNamespace ? (
+						<span className="truncate rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+							{cluster.defaultNamespace}
+						</span>
+					) : null}
+				</div>
+				{cluster.description ? (
+					<p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+						{cluster.description}
+					</p>
+				) : null}
+			</button>
+			<div className="absolute right-1.5 top-1.5">
+				<DropdownMenu open={isActionsOpen} onOpenChange={setIsActionsOpen}>
+					<DropdownMenuTrigger asChild>
+						<ToolbarButton
+							type="button"
+							aria-label={`Cluster actions for ${cluster.name}`}
+							title="Cluster actions"
+							className="h-6 w-6 px-0"
+						>
+							<MoreHorizontal className="size-3.5" aria-hidden="true" />
+						</ToolbarButton>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						{onLoginCluster && !isConnected ? (
+							<ClusterLoginModal
+								cluster={cluster}
+								onLoginCluster={onLoginCluster}
+								onOpenModalChange={handleModalOpenChange}
+								trigger={
+									<DropdownMenuItem
+										onSelect={(event) => event.preventDefault()}
+									>
+										<KeyRound className="size-3.5" aria-hidden="true" />
+										Login
+									</DropdownMenuItem>
+								}
+							/>
+						) : null}
+						{onLogoutCluster && isConnected ? (
+							<LogoutClusterDialog
+								cluster={cluster}
+								onLogoutCluster={onLogoutCluster}
+								onOpenModalChange={handleModalOpenChange}
+							/>
+						) : null}
+						<ClusterFormModal
+							cluster={cluster}
+							mode="edit"
+							onSubmitCluster={(payload) => onUpdateCluster(cluster, payload)}
+							onOpenModalChange={handleModalOpenChange}
+							trigger={
+								<DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+									<Edit3 className="size-3.5" aria-hidden="true" />
+									Edit
+								</DropdownMenuItem>
+							}
+						/>
+						<DeleteClusterDialog
+							cluster={cluster}
+							onDeleteCluster={onDeleteCluster}
+							onOpenModalChange={handleModalOpenChange}
+						/>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</div>
+		</div>
 	);
 }
 
@@ -749,123 +881,18 @@ export function ClustersSidebar({
 					/>
 				) : (
 					<div className="space-y-1" role="list" aria-label="Clusters">
-						{clusters.map((cluster) => {
-							const isSelected =
-								String(cluster.id) === String(selectedClusterId);
-							const isConnected =
-								String(cluster.lastConnectionStatus || "").toLowerCase() ===
-								"connected";
-
-							return (
-								<div
-									key={cluster.id}
-									role="listitem"
-									className={cn(
-										"relative rounded-md border transition-colors",
-										isSelected
-											? "border-primary/45 bg-primary/10 shadow-sm"
-											: "border-transparent hover:border-border hover:bg-muted/50",
-									)}
-								>
-									<button
-										type="button"
-										onClick={() => onSelectCluster(cluster.id)}
-										aria-current={isSelected ? "true" : undefined}
-										className="w-full rounded-md p-2 pr-9 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-									>
-										<div className="flex items-start justify-between gap-2">
-											<div className="min-w-0">
-												<p className="truncate text-sm font-medium text-foreground">
-													{cluster.name}
-												</p>
-												<p className="mt-0.5 truncate text-xs text-muted-foreground">
-													{cluster.apiUrl}
-												</p>
-											</div>
-											{isSelected ? (
-												<span className="mt-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
-													Selected
-												</span>
-											) : null}
-										</div>
-										<div className="mt-2 flex flex-wrap items-center gap-1.5">
-											<ClusterStatusBadge cluster={cluster} />
-											{cluster.defaultNamespace ? (
-												<span className="truncate rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
-													{cluster.defaultNamespace}
-												</span>
-											) : null}
-										</div>
-										{cluster.description ? (
-											<p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-												{cluster.description}
-											</p>
-										) : null}
-									</button>
-									<div className="absolute right-1.5 top-1.5">
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<ToolbarButton
-													type="button"
-													aria-label={`Cluster actions for ${cluster.name}`}
-													title="Cluster actions"
-													className="h-6 w-6 px-0"
-												>
-													<MoreHorizontal
-														className="size-3.5"
-														aria-hidden="true"
-													/>
-												</ToolbarButton>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent>
-												{onLoginCluster && !isConnected ? (
-													<ClusterLoginModal
-														cluster={cluster}
-														onLoginCluster={onLoginCluster}
-														trigger={
-															<DropdownMenuItem
-																onSelect={(event) => event.preventDefault()}
-															>
-																<KeyRound
-																	className="size-3.5"
-																	aria-hidden="true"
-																/>
-																Login
-															</DropdownMenuItem>
-														}
-													/>
-												) : null}
-												{onLogoutCluster && isConnected ? (
-													<LogoutClusterDialog
-														cluster={cluster}
-														onLogoutCluster={onLogoutCluster}
-													/>
-												) : null}
-												<ClusterFormModal
-													cluster={cluster}
-													mode="edit"
-													onSubmitCluster={(payload) =>
-														onUpdateCluster(cluster, payload)
-													}
-													trigger={
-														<DropdownMenuItem
-															onSelect={(event) => event.preventDefault()}
-														>
-															<Edit3 className="size-3.5" aria-hidden="true" />
-															Edit
-														</DropdownMenuItem>
-													}
-												/>
-												<DeleteClusterDialog
-													cluster={cluster}
-													onDeleteCluster={onDeleteCluster}
-												/>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</div>
-								</div>
-							);
-						})}
+						{clusters.map((cluster) => (
+							<ClusterListItem
+								key={cluster.id}
+								cluster={cluster}
+								isSelected={String(cluster.id) === String(selectedClusterId)}
+								onDeleteCluster={onDeleteCluster}
+								onLoginCluster={onLoginCluster}
+								onLogoutCluster={onLogoutCluster}
+								onSelectCluster={onSelectCluster}
+								onUpdateCluster={onUpdateCluster}
+							/>
+						))}
 					</div>
 				)}
 			</div>
