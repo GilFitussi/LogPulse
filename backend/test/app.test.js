@@ -1,5 +1,13 @@
 const request = require("supertest");
 
+jest.mock("../src/service/clusterResources.service", () => ({
+	getClusterPodLogs: jest.fn(),
+	listClusterDeployments: jest.fn(),
+	listClusterNamespaces: jest.fn(),
+	listClusterPods: jest.fn(),
+	listClusterPodsForDeployment: jest.fn(),
+}));
+
 const app = require("../src/app");
 
 describe("GET /health", () => {
