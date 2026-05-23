@@ -25,21 +25,6 @@ jest.mock("../../src/service/clusterOcLogin.service", () => ({
 	logoutFromCluster: jest.fn(),
 }));
 
-jest.mock("../../src/service/namespaces.service", () => ({
-	isValidNamespace: jest.fn(() => true),
-	listNamespaces: jest.fn(),
-}));
-
-jest.mock("../../src/service/deployments.service", () => ({
-	isValidDeployment: jest.fn(() => true),
-	listDeployments: jest.fn(),
-}));
-
-jest.mock("../../src/service/pods.service", () => ({
-	listPods: jest.fn(),
-	listPodsForDeployment: jest.fn(),
-}));
-
 const app = require("../../src/app");
 
 beforeEach(() => {
