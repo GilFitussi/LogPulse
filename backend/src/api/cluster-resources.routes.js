@@ -1,16 +1,9 @@
 const Router = require("@koa/router");
-const {
-	isValidNamespace,
-	listNamespaces,
-} = require("../service/namespaces.service");
-const {
-	isValidDeployment,
-	listDeployments,
-} = require("../service/deployments.service");
-const { listPods, listPodsForDeployment } = require("../service/pods.service");
 const { getClusterById } = require("../service/clusterManager.service");
 
 const router = new Router({ prefix: "/api/clusters/:clusterId" });
+
+const NOT_IMPLEMENTED_MESSAGE = "Cluster-scoped resources are not implemented yet.";
 
 router.use(async (ctx, next) => {
 	const clusterId = parseClusterId(ctx.params.clusterId);
@@ -26,48 +19,18 @@ router.use(async (ctx, next) => {
 	await next();
 });
 
-router.get("/namespaces", async (ctx) => {
-	ctx.body = { namespaces: await listNamespaces() };
-});
-
-router.get("/namespaces/:namespace/deployments", async (ctx) => {
-	const { namespace } = ctx.params;
-
-	validateNamespace(ctx, namespace);
-
-	ctx.body = { deployments: await listDeployments(namespace) };
-});
-
-router.get("/namespaces/:namespace/pods", async (ctx) => {
-	const { namespace } = ctx.params;
-
-	validateNamespace(ctx, namespace);
-
-	ctx.body = { pods: await listPods(namespace) };
-});
-
+router.get("/namespaces", notImplemented);
+router.get("/namespaces/:namespace/deployments", notImplemented);
+router.get("/namespaces/:namespace/pods", notImplemented);
 router.get(
 	"/namespaces/:namespace/deployments/:deployment/pods",
-	async (ctx) => {
-		const { namespace, deployment } = ctx.params;
-
-		validateNamespace(ctx, namespace);
-		validateDeployment(ctx, deployment);
-
-		ctx.body = { pods: await listPodsForDeployment(namespace, deployment) };
-	},
+	notImplemented,
 );
+router.get("/namespaces/:namespace/pods/:podName/logs", notImplemented);
 
-function validateNamespace(ctx, namespace) {
-	if (!isValidNamespace(namespace)) {
-		ctx.throw(400, "Invalid namespace");
-	}
-}
-
-function validateDeployment(ctx, deployment) {
-	if (!isValidDeployment(deployment)) {
-		ctx.throw(400, "Invalid deployment");
-	}
+function notImplemented(ctx) {
+	ctx.status = 501;
+	ctx.body = { error: NOT_IMPLEMENTED_MESSAGE };
 }
 
 function parseClusterId(clusterId) {
@@ -76,3 +39,4 @@ function parseClusterId(clusterId) {
 }
 
 module.exports = router;
+module.exports.NOT_IMPLEMENTED_MESSAGE = NOT_IMPLEMENTED_MESSAGE;

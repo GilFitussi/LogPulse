@@ -4,7 +4,6 @@ const cors = require("@koa/cors");
 const bodyParser = require("koa-bodyparser");
 const authRouter = require("./api/auth.route");
 const clusterResourcesRouter = require("./api/cluster-resources.routes");
-const logsRouter = require("./api/logs.route");
 const clustersRouter = require("./api/clusters.route");
 const errorMiddleware = require("./middleware/error.middleware");
 
@@ -36,8 +35,6 @@ app.use(authRouter.routes());
 app.use(authRouter.allowedMethods());
 app.use(clusterResourcesRouter.routes());
 app.use(clusterResourcesRouter.allowedMethods());
-app.use(logsRouter.routes());
-app.use(logsRouter.allowedMethods());
 app.use(clustersRouter.routes());
 app.use(clustersRouter.allowedMethods());
 
