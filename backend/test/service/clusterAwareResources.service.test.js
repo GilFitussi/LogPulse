@@ -14,8 +14,13 @@ function loadClusterAwareServices() {
 		isOcNotInstalledError: jest.fn((error) => error?.code === "ENOENT"),
 		runOcCommand: jest.fn(),
 	}));
+	jest.doMock("@kubernetes/client-node", () => ({
+		AppsV1Api: class AppsV1Api {},
+		CoreV1Api: class CoreV1Api {},
+	}));
 	jest.doMock("../../src/service/kubeClient.service", () => ({
 		createKubeClient: jest.fn(),
+		createKubeConfig: jest.fn(),
 	}));
 
 	return {
@@ -32,6 +37,7 @@ describe("cluster-aware resource services", () => {
 		jest.dontMock("../../src/service/clusterManager.service");
 		jest.dontMock("../../src/service/ocCommand.service");
 		jest.dontMock("../../src/service/kubeClient.service");
+		jest.dontMock("@kubernetes/client-node");
 	});
 
 	it("validates clusterId and scopes namespace oc commands to the cluster server", async () => {

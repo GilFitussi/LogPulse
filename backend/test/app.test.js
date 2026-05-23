@@ -1,7 +1,13 @@
 const request = require("supertest");
 
+jest.mock("@kubernetes/client-node", () => ({
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+}));
+
 jest.mock("../src/service/kubeClient.service", () => ({
   createKubeClient: jest.fn(),
+  createKubeConfig: jest.fn(),
 }));
 
 const app = require("../src/app");

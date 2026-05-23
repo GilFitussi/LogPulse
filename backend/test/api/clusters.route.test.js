@@ -12,6 +12,11 @@ const {
 	logoutFromCluster,
 } = require("../../src/service/clusterOcLogin.service");
 
+jest.mock("@kubernetes/client-node", () => ({
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+}));
+
 jest.mock("../../src/service/clusterManager.service", () => ({
 	createCluster: jest.fn(),
 	deleteCluster: jest.fn(),
@@ -38,6 +43,11 @@ jest.mock("../../src/service/deployments.service", () => ({
 jest.mock("../../src/service/pods.service", () => ({
 	listPods: jest.fn(),
 	listPodsForDeployment: jest.fn(),
+}));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
 }));
 
 const app = require("../../src/app");

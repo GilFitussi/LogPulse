@@ -1,4 +1,6 @@
+const k8s = require("@kubernetes/client-node");
 const { KubernetesApiError } = require("../errors/app.error");
+const { createKubeClient } = require("./kubeClient.service");
 const { runOcCommand } = require("./ocCommand.service");
 const {
 	resolveCluster,
@@ -95,8 +97,6 @@ async function listDeployments(clusterId, namespace) {
 
 async function listDeploymentsFromCurrentContext(namespace) {
 	try {
-		const k8s = require("@kubernetes/client-node");
-		const { createKubeClient } = require("./kubeClient.service");
 		const client = await createKubeClient(k8s.AppsV1Api);
 		const response = await client.listNamespacedDeployment({ namespace });
 		const deploymentList = response?.body || response;
@@ -146,8 +146,6 @@ async function listReplicaSetsForDeploymentFromCurrentContext(
 	labelSelector,
 ) {
 	try {
-		const k8s = require("@kubernetes/client-node");
-		const { createKubeClient } = require("./kubeClient.service");
 		const client = await createKubeClient(k8s.AppsV1Api);
 		const response = await client.listNamespacedReplicaSet({
 			namespace,
@@ -213,8 +211,6 @@ async function getDeployment(clusterId, namespace, deployment) {
 
 async function getDeploymentFromCurrentContext(namespace, deployment) {
 	try {
-		const k8s = require("@kubernetes/client-node");
-		const { createKubeClient } = require("./kubeClient.service");
 		const client = await createKubeClient(k8s.AppsV1Api);
 		const response = await client.readNamespacedDeployment({
 			name: deployment,

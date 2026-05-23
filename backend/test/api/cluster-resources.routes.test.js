@@ -13,6 +13,11 @@ const {
 } = require("../../src/service/pods.service");
 const { getClusterById } = require("../../src/service/clusterManager.service");
 
+jest.mock("@kubernetes/client-node", () => ({
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+}));
+
 jest.mock("../../src/service/namespaces.service", () => ({
 	isValidNamespace: jest.fn(() => true),
 	listNamespaces: jest.fn(),
@@ -30,6 +35,11 @@ jest.mock("../../src/service/pods.service", () => ({
 
 jest.mock("../../src/service/clusterManager.service", () => ({
 	getClusterById: jest.fn(),
+}));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
 }));
 
 const app = require("../../src/app");

@@ -16,6 +16,11 @@ const {
 	OpenShiftAuthError,
 } = require("../../src/errors/app.error");
 
+jest.mock("@kubernetes/client-node", () => ({
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+}));
+
 jest.mock("../../src/service/namespaces.service", () => ({
 	isValidNamespace: jest.fn(() => true),
 	listNamespacesFromCurrentContext: jest.fn(),
@@ -29,6 +34,11 @@ jest.mock("../../src/service/deployments.service", () => ({
 jest.mock("../../src/service/pods.service", () => ({
 	listPodsFromCurrentContext: jest.fn(),
 	listPodsForDeploymentFromCurrentContext: jest.fn(),
+}));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
 }));
 
 const app = require("../../src/app");

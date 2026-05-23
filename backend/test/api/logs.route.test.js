@@ -5,6 +5,11 @@ const { streamPodLogs } = require("../../src/service/logs.service");
 const { isValidNamespace } = require("../../src/service/namespaces.service");
 const { isValidPod } = require("../../src/service/pods.service");
 
+jest.mock("@kubernetes/client-node", () => ({
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+}));
+
 jest.mock("../../src/service/logs.service", () => ({
 	streamPodLogs: jest.fn(),
 }));
@@ -15,6 +20,11 @@ jest.mock("../../src/service/namespaces.service", () => ({
 
 jest.mock("../../src/service/pods.service", () => ({
 	isValidPod: jest.fn(() => true),
+}));
+
+jest.mock("../../src/service/kubeClient.service", () => ({
+	createKubeClient: jest.fn(),
+	createKubeConfig: jest.fn(),
 }));
 
 function waitForTick() {
