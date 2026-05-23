@@ -59,17 +59,23 @@ export const useViewerStore = create((set, get) => ({
 	},
 	setSelectedNamespace: (clusterId, namespace) => {
 		const normalizedClusterId = normalizeClusterId(clusterId);
-		const clusterState = get().getOrCreateClusterState(normalizedClusterId);
 
-		set((state) => ({
-			viewerStateByCluster: createClusterStateMapWithEntry(
-				state.viewerStateByCluster,
-				normalizedClusterId,
-				{
-					...clusterState,
-					selectedNamespace: namespace,
-				},
-			),
-		}));
+		get().getOrCreateClusterState(normalizedClusterId);
+
+		set((state) => {
+			const currentClusterState =
+				state.viewerStateByCluster[normalizedClusterId];
+
+			return {
+				viewerStateByCluster: createClusterStateMapWithEntry(
+					state.viewerStateByCluster,
+					normalizedClusterId,
+					{
+						...currentClusterState,
+						selectedNamespace: namespace,
+					},
+				),
+			};
+		});
 	},
 }));
