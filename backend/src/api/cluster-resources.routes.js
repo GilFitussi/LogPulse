@@ -1,14 +1,13 @@
 const Router = require("@koa/router");
-const {
-	isValidNamespace,
-	listNamespaces,
-} = require("../service/namespaces.service");
-const {
-	isValidDeployment,
-	listDeployments,
-} = require("../service/deployments.service");
-const { listPods, listPodsForDeployment } = require("../service/pods.service");
+const { isValidNamespace } = require("../service/namespaces.service");
+const { isValidDeployment } = require("../service/deployments.service");
 const { getClusterById } = require("../service/clusterManager.service");
+const {
+	listClusterDeployments,
+	listClusterNamespaces,
+	listClusterPods,
+	listClusterPodsForDeployment,
+} = require("../services/cluster-resources.service");
 
 const router = new Router({ prefix: "/api/clusters/:clusterId" });
 
@@ -27,7 +26,9 @@ router.use(async (ctx, next) => {
 });
 
 router.get("/namespaces", async (ctx) => {
-	ctx.body = { namespaces: await listNamespaces() };
+	ctx.body = {
+		namespaces: await listClusterNamespaces(ctx.state.cluster.id),
+	};
 });
 
 router.get("/namespaces/:namespace/deployments", async (ctx) => {
@@ -35,7 +36,9 @@ router.get("/namespaces/:namespace/deployments", async (ctx) => {
 
 	validateNamespace(ctx, namespace);
 
-	ctx.body = { deployments: await listDeployments(namespace) };
+	ctx.body = {
+		deployments: await listClusterDeployments(ctx.state.cluster.id, namespace),
+	};
 });
 
 router.get("/namespaces/:namespace/pods", async (ctx) => {
@@ -43,7 +46,9 @@ router.get("/namespaces/:namespace/pods", async (ctx) => {
 
 	validateNamespace(ctx, namespace);
 
-	ctx.body = { pods: await listPods(namespace) };
+	ctx.body = {
+		pods: await listClusterPods(ctx.state.cluster.id, namespace),
+	};
 });
 
 router.get(
@@ -54,7 +59,13 @@ router.get(
 		validateNamespace(ctx, namespace);
 		validateDeployment(ctx, deployment);
 
-		ctx.body = { pods: await listPodsForDeployment(namespace, deployment) };
+		ctx.body = {
+			pods: await listClusterPodsForDeployment(
+				ctx.state.cluster.id,
+				namespace,
+				deployment,
+			),
+		};
 	},
 );
 

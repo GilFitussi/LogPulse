@@ -1,31 +1,31 @@
 const request = require("supertest");
-const {
-	isValidNamespace,
-	listNamespaces,
-} = require("../../src/service/namespaces.service");
-const {
-	isValidDeployment,
-	listDeployments,
-} = require("../../src/service/deployments.service");
-const {
-	listPods,
-	listPodsForDeployment,
-} = require("../../src/service/pods.service");
+const { isValidNamespace } = require("../../src/service/namespaces.service");
+const { isValidDeployment } = require("../../src/service/deployments.service");
 const { getClusterById } = require("../../src/service/clusterManager.service");
+const {
+	listClusterDeployments,
+	listClusterNamespaces,
+	listClusterPods,
+	listClusterPodsForDeployment,
+} = require("../../src/services/cluster-resources.service");
 
 jest.mock("../../src/service/namespaces.service", () => ({
 	isValidNamespace: jest.fn(() => true),
-	listNamespaces: jest.fn(),
 }));
 
 jest.mock("../../src/service/deployments.service", () => ({
 	isValidDeployment: jest.fn(() => true),
-	listDeployments: jest.fn(),
 }));
 
 jest.mock("../../src/service/pods.service", () => ({
-	listPods: jest.fn(),
-	listPodsForDeployment: jest.fn(),
+	isValidPod: jest.fn(() => true),
+}));
+
+jest.mock("../../src/services/cluster-resources.service", () => ({
+	listClusterDeployments: jest.fn(),
+	listClusterNamespaces: jest.fn(),
+	listClusterPods: jest.fn(),
+	listClusterPodsForDeployment: jest.fn(),
 }));
 
 jest.mock("../../src/service/clusterManager.service", () => ({
@@ -43,19 +43,19 @@ const cluster = {
 beforeEach(() => {
 	getClusterById.mockReset();
 	getClusterById.mockResolvedValue(cluster);
-	listNamespaces.mockReset();
+	listClusterNamespaces.mockReset();
+	listClusterDeployments.mockReset();
+	listClusterPods.mockReset();
+	listClusterPodsForDeployment.mockReset();
 	isValidNamespace.mockReset();
 	isValidNamespace.mockReturnValue(true);
-	listDeployments.mockReset();
 	isValidDeployment.mockReset();
 	isValidDeployment.mockReturnValue(true);
-	listPods.mockReset();
-	listPodsForDeployment.mockReset();
 });
 
 describe("GET /api/clusters/:clusterId/namespaces", () => {
 	it("returns namespace names for the selected cluster", async () => {
-		listNamespaces.mockResolvedValue(["dev", "prod"]);
+		listClusterNamespaces.mockResolvedValue(["dev", "prod"]);
 
 		const response = await request(app.callback()).get(
 			"/api/clusters/1/namespaces",
@@ -64,7 +64,7 @@ describe("GET /api/clusters/:clusterId/namespaces", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ namespaces: ["dev", "prod"] });
 		expect(getClusterById).toHaveBeenCalledWith(1);
-		expect(listNamespaces).toHaveBeenCalledTimes(1);
+		expect(listClusterNamespaces).toHaveBeenCalledWith(1);
 	});
 
 	it("returns 404 when the cluster does not exist", async () => {
@@ -76,14 +76,14 @@ describe("GET /api/clusters/:clusterId/namespaces", () => {
 
 		expect(response.status).toBe(404);
 		expect(response.body).toEqual({ error: "Cluster not found" });
-		expect(listNamespaces).not.toHaveBeenCalled();
+		expect(listClusterNamespaces).not.toHaveBeenCalled();
 	});
 });
 
 describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments", () => {
 	it("returns deployments from the deployments service", async () => {
 		const deployments = [{ name: "api", selector: "app=api" }];
-		listDeployments.mockResolvedValue(deployments);
+		listClusterDeployments.mockResolvedValue(deployments);
 
 		const response = await request(app.callback()).get(
 			"/api/clusters/1/namespaces/my-project/deployments",
@@ -92,7 +92,7 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments", () =>
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ deployments });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listDeployments).toHaveBeenCalledWith("my-project");
+		expect(listClusterDeployments).toHaveBeenCalledWith(1, "my-project");
 	});
 
 	it("rejects invalid namespace params", async () => {
@@ -104,14 +104,14 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments", () =>
 
 		expect(response.status).toBe(400);
 		expect(response.body.error).toBe("Invalid namespace");
-		expect(listDeployments).not.toHaveBeenCalled();
+		expect(listClusterDeployments).not.toHaveBeenCalled();
 	});
 });
 
 describe("GET /api/clusters/:clusterId/namespaces/:namespace/pods", () => {
 	it("returns pods from the pods service", async () => {
 		const pods = [{ name: "api-123", status: "Running" }];
-		listPods.mockResolvedValue(pods);
+		listClusterPods.mockResolvedValue(pods);
 
 		const response = await request(app.callback()).get(
 			"/api/clusters/1/namespaces/my-project/pods",
@@ -120,14 +120,14 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/pods", () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
-		expect(listPods).toHaveBeenCalledWith("my-project");
+		expect(listClusterPods).toHaveBeenCalledWith(1, "my-project");
 	});
 });
 
 describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments/:deployment/pods", () => {
 	it("returns pods for a deployment", async () => {
 		const pods = [{ name: "api-123", status: "Running" }];
-		listPodsForDeployment.mockResolvedValue(pods);
+		listClusterPodsForDeployment.mockResolvedValue(pods);
 
 		const response = await request(app.callback()).get(
 			"/api/clusters/1/namespaces/my-project/deployments/api/pods",
@@ -137,7 +137,11 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments/:deploy
 		expect(response.body).toEqual({ pods });
 		expect(isValidNamespace).toHaveBeenCalledWith("my-project");
 		expect(isValidDeployment).toHaveBeenCalledWith("api");
-		expect(listPodsForDeployment).toHaveBeenCalledWith("my-project", "api");
+		expect(listClusterPodsForDeployment).toHaveBeenCalledWith(
+			1,
+			"my-project",
+			"api",
+		);
 	});
 
 	it("rejects invalid deployment params", async () => {
@@ -149,6 +153,6 @@ describe("GET /api/clusters/:clusterId/namespaces/:namespace/deployments/:deploy
 
 		expect(response.status).toBe(400);
 		expect(response.body.error).toBe("Invalid deployment");
-		expect(listPodsForDeployment).not.toHaveBeenCalled();
+		expect(listClusterPodsForDeployment).not.toHaveBeenCalled();
 	});
 });
