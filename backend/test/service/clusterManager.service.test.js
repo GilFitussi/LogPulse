@@ -5,6 +5,7 @@ const {
 	deleteCluster,
 	getClusterById,
 	listClusters,
+	resetConnectedClustersOnStartup,
 	updateCluster,
 	updateClusterConnectionStatus,
 } = require("../../src/service/clusterManager.service");
@@ -134,6 +135,48 @@ describe("cluster manager service", () => {
 		});
 		expect(updated.createdAt).toBe(cluster.createdAt);
 		expect(updated.updatedAt).toBe(cluster.updatedAt);
+	});
+
+	it("resets persisted connected clusters to disconnected on startup", async () => {
+		const connected = await createCluster(
+			{
+				name: "Connected",
+				apiUrl: "https://connected.example.com",
+				lastConnectedAt: "2026-05-20T10:00:00.000Z",
+				lastConnectionStatus: "connected",
+				lastConnectionError: "stale",
+			},
+			{ database },
+		);
+		const failed = await createCluster(
+			{
+				name: "Failed",
+				apiUrl: "https://failed.example.com",
+				lastConnectionStatus: "failed",
+				lastConnectionError: "still failed",
+			},
+			{ database },
+		);
+
+		await expect(resetConnectedClustersOnStartup({ database })).resolves.toBe(
+			1,
+		);
+
+		await expect(
+			getClusterById(connected.id, { database }),
+		).resolves.toMatchObject({
+			id: connected.id,
+			lastConnectedAt: "2026-05-20T10:00:00.000Z",
+			lastConnectionStatus: "disconnected",
+			lastConnectionError: null,
+		});
+		await expect(
+			getClusterById(failed.id, { database }),
+		).resolves.toMatchObject({
+			id: failed.id,
+			lastConnectionStatus: "failed",
+			lastConnectionError: "still failed",
+		});
 	});
 
 	it("returns null or false for missing clusters", async () => {

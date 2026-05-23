@@ -3,6 +3,10 @@ const {
 	getClusterById,
 	updateClusterConnectionStatus,
 } = require("../../src/service/clusterManager.service");
+const {
+	clearClusterSession,
+	setClusterSession,
+} = require("../../src/service/clusterSessionRegistry.service");
 const { runOcCommand } = require("../../src/service/ocCommand.service");
 const {
 	LOGIN_STATUS_CONNECTED,
@@ -17,6 +21,11 @@ jest.mock("../../src/service/clusterManager.service", () => ({
 	updateClusterConnectionStatus: jest.fn(),
 }));
 
+jest.mock("../../src/service/clusterSessionRegistry.service", () => ({
+	clearClusterSession: jest.fn(),
+	setClusterSession: jest.fn(),
+}));
+
 jest.mock("../../src/service/ocCommand.service", () => ({
 	getOcErrorMessage: jest.fn(
 		(error) => error?.stderr?.trim() || error?.stdout?.trim() || error?.message,
@@ -29,7 +38,14 @@ describe("cluster oc login service", () => {
 	beforeEach(() => {
 		getClusterById.mockReset();
 		updateClusterConnectionStatus.mockReset();
+		setClusterSession.mockReset();
+		clearClusterSession.mockReset();
 		runOcCommand.mockReset();
+		jest.spyOn(fs, "readFile").mockResolvedValue("mock-kubeconfig-content");
+	});
+
+	afterEach(() => {
+		jest.restoreAllMocks();
 	});
 
 	it("runs oc login against the cluster apiUrl, verifies with whoami, and updates connection status", async () => {
@@ -88,6 +104,22 @@ describe("cluster oc login service", () => {
 			lastConnectionStatus: LOGIN_STATUS_CONNECTED,
 			lastConnectionError: null,
 		});
+		expect(fs.readFile).toHaveBeenCalledWith(
+			expect.stringContaining("config"),
+			"utf8",
+		);
+		expect(setClusterSession).toHaveBeenCalledWith(
+			1,
+			expect.objectContaining({
+				clusterId: 1,
+				kubeconfigContent: "mock-kubeconfig-content",
+				username: "developer",
+				connectedAt: expect.any(String),
+			}),
+		);
+		expect(
+			JSON.stringify(updateClusterConnectionStatus.mock.calls),
+		).not.toContain("mock-kubeconfig-content");
 	});
 
 	it("runs oc login with an OpenShift token", async () => {
@@ -212,6 +244,7 @@ describe("cluster oc login service", () => {
 		expect(
 			JSON.stringify(updateClusterConnectionStatus.mock.calls),
 		).not.toContain("sha256~secret-token");
+		expect(setClusterSession).not.toHaveBeenCalled();
 	});
 
 	it("throws an app error without running oc when the cluster is missing", async () => {
@@ -255,6 +288,7 @@ describe("cluster oc login service", () => {
 			lastConnectionStatus: LOGIN_STATUS_DISCONNECTED,
 			lastConnectionError: null,
 		});
+		expect(clearClusterSession).toHaveBeenCalledWith(1);
 	});
 
 	it("throws an app error without running oc logout when the cluster is missing", async () => {

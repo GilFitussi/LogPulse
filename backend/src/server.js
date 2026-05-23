@@ -1,10 +1,14 @@
 const app = require("./app");
 const { bootstrapDatabase } = require("./database/bootstrap");
+const {
+	resetConnectedClustersOnStartup,
+} = require("./service/clusterManager.service");
 
 const port = process.env.PORT || 3000;
 
 async function startServer() {
 	const database = await bootstrapDatabase();
+	await resetConnectedClustersOnStartup({ database });
 	const server = app.listen(port, () => {
 		console.log(`Server running on port ${port}`);
 	});
