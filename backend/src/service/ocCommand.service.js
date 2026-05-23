@@ -1,15 +1,17 @@
 const { execFile } = require("node:child_process");
 
 function runOcCommand(args, options = {}) {
+	const { input, ...execOptions } = options;
+
 	return new Promise((resolve, reject) => {
-		execFile(
+		const child = execFile(
 			"oc",
 			args,
 			{
 				encoding: "utf8",
 				timeout: 10_000,
 				maxBuffer: 1024 * 1024,
-				...options,
+				...execOptions,
 			},
 			(error, stdout, stderr) => {
 				if (error) {
@@ -22,6 +24,15 @@ function runOcCommand(args, options = {}) {
 				resolve({ stdout, stderr });
 			},
 		);
+
+		if (child?.stdin) {
+			if (input !== undefined) {
+				child.stdin.end(input);
+				return;
+			}
+
+			child.stdin.end();
+		}
 	});
 }
 
