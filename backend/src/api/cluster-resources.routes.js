@@ -1,6 +1,13 @@
 const Router = require("@koa/router");
 const Joi = require("joi");
 const { getClusterById } = require("../service/clusterManager.service");
+const {
+	getClusterPodLogs,
+	listClusterDeployments,
+	listClusterNamespaces,
+	listClusterPods,
+	listClusterPodsForDeployment,
+} = require("../service/clusterResources.service");
 
 const router = new Router({ prefix: "/api/clusters/:clusterId" });
 
@@ -60,11 +67,8 @@ router.use(async (ctx, next) => {
 	await next();
 });
 
-router.get("/namespaces", async (ctx) => {
-	ctx.body = {
-		namespaces: await requireClusterResourcesService().listClusterNamespaces(
-			ctx.state.clusterId,
-		),
+router.get("/namespaces", async (ctx) => {	ctx.body = {
+		namespaces: await listClusterNamespaces(ctx.state.clusterId),
 	};
 });
 
@@ -81,7 +85,7 @@ router.get("/namespaces/:namespace/deployments", async (ctx) => {
 	}
 
 	ctx.body = {
-		deployments: await requireClusterResourcesService().listClusterDeployments(
+		deployments: await listClusterDeployments(
 			ctx.state.clusterId,
 			params.namespace,
 		),
@@ -101,10 +105,7 @@ router.get("/namespaces/:namespace/pods", async (ctx) => {
 	}
 
 	ctx.body = {
-		pods: await requireClusterResourcesService().listClusterPods(
-			ctx.state.clusterId,
-			params.namespace,
-		),
+		pods: await listClusterPods(ctx.state.clusterId, params.namespace),
 	};
 });
 
@@ -123,7 +124,7 @@ router.get(
 		}
 
 		ctx.body = {
-			pods: await requireClusterResourcesService().listClusterPodsForDeployment(
+			pods: await listClusterPodsForDeployment(
 				ctx.state.clusterId,
 				params.namespace,
 				params.deployment,
@@ -155,7 +156,7 @@ router.get("/namespaces/:namespace/pods/:podName/logs", async (ctx) => {
 		return;
 	}
 
-	const result = await requireClusterResourcesService().getClusterPodLogs(
+	const result = await getClusterPodLogs(
 		ctx.state.clusterId,
 		params.namespace,
 		params.podName,
@@ -166,10 +167,6 @@ router.get("/namespaces/:namespace/pods/:podName/logs", async (ctx) => {
 		logs: result.logs,
 	};
 });
-
-function requireClusterResourcesService() {
-	return require("../service/clusterResources.service");
-}
 
 function validateRequest(ctx, input, schema, errorMessage) {
 	const validation = validateInput(input, schema);
