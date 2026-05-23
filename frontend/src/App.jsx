@@ -11,14 +11,6 @@ import { TopToolbar } from "@/components/layout/top-toolbar";
 
 const API_BASE_URL = "http://localhost:3000";
 
-const AUTH_STATUS = {
-	CHECKING: "checking",
-	CONNECTED: "connected",
-	NOT_LOGGED_IN: "not-logged-in",
-	OC_NOT_INSTALLED: "oc-not-installed",
-	ERROR: "error",
-};
-
 function getClusterApiErrorMessage(data, fallbackMessage) {
 	const details = data.details;
 
@@ -140,9 +132,6 @@ function SelectedClusterWorkspaceHeader({ cluster }) {
 }
 
 function App() {
-	const [, setHealthStatus] = useState("Checking backend health...");
-	const [, setAuthStatus] = useState(AUTH_STATUS.CHECKING);
-	const [, setAuthStatusMessage] = useState("Checking oc login...");
 	const [clusters, setClusters] = useState([]);
 	const [clustersError, setClustersError] = useState("");
 	const [isClustersLoading, setIsClustersLoading] = useState(true);
@@ -271,42 +260,6 @@ function App() {
 		[loadClusters],
 	);
 
-	const checkAuthStatus = useCallback(async () => {
-		try {
-			const response = await fetch(`${API_BASE_URL}/api/auth/status`);
-			const data = await response.json().catch(() => ({}));
-
-			if (response.ok && data.authenticated === true) {
-				setAuthStatus(AUTH_STATUS.CONNECTED);
-				setAuthStatusMessage(
-					data.username ? `OC logged in as ${data.username}` : "OC logged in",
-				);
-				return;
-			}
-
-			if (response.status === 401) {
-				setAuthStatus(AUTH_STATUS.NOT_LOGGED_IN);
-				setAuthStatusMessage(data.action || data.error || "Run oc login");
-				return;
-			}
-
-			if (
-				response.status === 500 &&
-				data.error?.toLowerCase().includes("oc cli")
-			) {
-				setAuthStatus(AUTH_STATUS.OC_NOT_INSTALLED);
-				setAuthStatusMessage(data.action || data.error || "oc CLI missing");
-				return;
-			}
-
-			setAuthStatus(AUTH_STATUS.ERROR);
-			setAuthStatusMessage(data.error || "Unable to verify oc login");
-		} catch {
-			setAuthStatus(AUTH_STATUS.ERROR);
-			setAuthStatusMessage("Unable to reach backend for oc login check");
-		}
-	}, []);
-
 	const loginToCluster = useCallback(
 		async (cluster, credentials) => {
 			const response = await fetch(
@@ -331,11 +284,10 @@ function App() {
 
 			await loadClusters();
 			setSelectedClusterId(loggedInClusterId);
-			await checkAuthStatus();
 
 			return data;
 		},
-		[checkAuthStatus, loadClusters],
+		[loadClusters],
 	);
 
 	const logoutFromCluster = useCallback(
@@ -355,40 +307,15 @@ function App() {
 			}
 
 			await loadClusters();
-			await checkAuthStatus();
 
 			return data.cluster;
 		},
-		[checkAuthStatus, loadClusters],
+		[loadClusters],
 	);
 
 	useEffect(() => {
-		const checkBackendHealth = async () => {
-			try {
-				const response = await fetch(`${API_BASE_URL}/health`);
-
-				if (!response.ok) {
-					setHealthStatus("Backend health check failed");
-					return;
-				}
-
-				const data = await response.json();
-
-				if (data.status === "ok") {
-					setHealthStatus("Backend is healthy");
-					return;
-				}
-
-				setHealthStatus("Backend health check failed");
-			} catch {
-				setHealthStatus("Backend health check failed");
-			}
-		};
-
-		void Promise.resolve().then(checkBackendHealth);
-		void Promise.resolve().then(checkAuthStatus);
 		void Promise.resolve().then(loadClusters);
-	}, [checkAuthStatus, loadClusters]);
+	}, [loadClusters]);
 
 	const selectedCluster = useMemo(
 		() =>
