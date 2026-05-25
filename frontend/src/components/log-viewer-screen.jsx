@@ -28,6 +28,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
 import {
@@ -36,7 +37,6 @@ import {
 	useViewerStore,
 } from "@/stores/useViewerStore";
 
-const MOCK_NAMESPACES = ["production", "staging", "dev"];
 const MOCK_DEPLOYMENTS = [
 	"payment-service",
 	"checkout-service",
@@ -288,6 +288,8 @@ function DropdownControl({
 	onSelect,
 	icon: Icon,
 	className,
+	placeholder = "Select an option",
+	disabled = false,
 }) {
 	return (
 		<div className={cn("min-w-0 space-y-2", className)}>
@@ -296,13 +298,18 @@ function DropdownControl({
 				<DropdownMenuTrigger asChild>
 					<Button
 						variant="outline"
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						disabled={disabled}
+						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-100 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
 							{Icon ? (
 								<Icon className="size-4 shrink-0 text-muted-foreground" />
 							) : null}
-							<span className="truncate">{value}</span>
+							<span
+								className={cn("truncate", !value && "text-muted-foreground")}
+							>
+								{value || placeholder}
+							</span>
 						</span>
 						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
 					</Button>
@@ -324,6 +331,78 @@ function DropdownControl({
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
+		</div>
+	);
+}
+
+function NamespaceDropdownControl({
+	value,
+	options,
+	isLoading,
+	error,
+	onRetry,
+	onSelect,
+	className,
+}) {
+	const triggerLabel = isLoading
+		? "Loading namespaces..."
+		: error
+			? "Unable to load namespaces"
+			: options.length === 0
+				? "No namespaces available"
+				: value || "Select a namespace";
+	const isDisabled = isLoading || (!error && options.length === 0);
+
+	return (
+		<div className={cn("min-w-0 space-y-2", className)}>
+			<ControlLabel>Namespace</ControlLabel>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="outline"
+						disabled={isDisabled}
+						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-100 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+					>
+						<span
+							className={cn(
+								"truncate text-left",
+								(!value || isLoading || error || options.length === 0) &&
+									"text-muted-foreground",
+							)}
+						>
+							{triggerLabel}
+						</span>
+						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+					</Button>
+				</DropdownMenuTrigger>
+				{!isDisabled ? (
+					<DropdownMenuContent className="w-64 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+						{options.map((option) => (
+							<DropdownMenuItem
+								key={option}
+								onSelect={() => onSelect?.(option)}
+								className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+							>
+								<div className="flex w-full items-center justify-between gap-3">
+									<span>{option}</span>
+									{String(option) === String(value) ? (
+										<Check className="size-4 text-primary" />
+									) : null}
+								</div>
+							</DropdownMenuItem>
+						))}
+					</DropdownMenuContent>
+				) : null}
+			</DropdownMenu>
+			{error ? (
+				<div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+					<p className="text-xs text-destructive">{error}</p>
+					<Button type="button" variant="outline" size="sm" onClick={onRetry}>
+						<RefreshCw className="size-3.5" />
+						Retry
+					</Button>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -541,7 +620,7 @@ function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
 	);
 }
 
-export function LogViewerScreen({ cluster }) {
+export function LogViewerScreen({ cluster, apiBaseUrl }) {
 	const clusterId = cluster?.id ?? null;
 	const ensureClusterState = useViewerStore(
 		(state) => state.getOrCreateClusterState,
@@ -571,6 +650,11 @@ export function LogViewerScreen({ cluster }) {
 
 	const initialQuery =
 		'level:error AND service.name:"payment-service" AND http.response.status_code >= 500';
+	const [namespaceState, setNamespaceState] = useState({
+		namespaces: [],
+		isLoading: false,
+		error: "",
+	});
 	const [queryDraft, setQueryDraft] = useState(initialQuery);
 	const [appliedQuery, setAppliedQuery] = useState(initialQuery);
 	const [fieldSearch, setFieldSearch] = useState("");
@@ -588,14 +672,121 @@ export function LogViewerScreen({ cluster }) {
 	const [selectedPods, setSelectedPods] = useState(MOCK_PODS);
 
 	const isConnected = isClusterConnected(cluster);
-	const selectedNamespace =
-		clusterViewerState.selectedNamespace ||
-		cluster?.defaultNamespace ||
-		MOCK_NAMESPACES[0];
+	const selectedNamespace = clusterViewerState.selectedNamespace || "";
 	const selectedDeployment =
 		clusterViewerState.selectedDeployment || MOCK_DEPLOYMENTS[0];
 	const selectedLog =
 		MOCK_LOGS.find((entry) => entry.id === selectedLogId) || MOCK_LOGS[0];
+
+	useEffect(() => {
+		let isCancelled = false;
+
+		const loadNamespaces = async () => {
+			if (!clusterId) {
+				setNamespaceState({
+					namespaces: [],
+					isLoading: false,
+					error: "",
+				});
+				return;
+			}
+
+			setNamespaceState({
+				namespaces: [],
+				isLoading: true,
+				error: "",
+			});
+
+			try {
+				const nextNamespaces = await fetchClusterNamespaces(
+					fetch,
+					clusterId,
+					apiBaseUrl,
+				);
+
+				if (isCancelled) {
+					return;
+				}
+
+				setNamespaceState({
+					namespaces: nextNamespaces,
+					isLoading: false,
+					error: "",
+				});
+			} catch (error) {
+				if (isCancelled) {
+					return;
+				}
+
+				setNamespaceState({
+					namespaces: [],
+					isLoading: false,
+					error: error.message || "Unable to load namespaces",
+				});
+			}
+		};
+
+		void loadNamespaces();
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [apiBaseUrl, clusterId]);
+
+	useEffect(() => {
+		if (
+			!clusterId ||
+			!selectedNamespace ||
+			namespaceState.isLoading ||
+			namespaceState.error
+		) {
+			return;
+		}
+
+		const namespaceStillExists = namespaceState.namespaces.some(
+			(namespace) => namespace.name === selectedNamespace,
+		);
+
+		if (!namespaceStillExists) {
+			setSelectedNamespace(clusterId, null);
+		}
+	}, [clusterId, namespaceState, selectedNamespace, setSelectedNamespace]);
+
+	const namespaceOptions = useMemo(
+		() => namespaceState.namespaces.map((namespace) => namespace.name),
+		[namespaceState.namespaces],
+	);
+
+	const handleRetryNamespaces = async () => {
+		if (!clusterId) {
+			return;
+		}
+
+		setNamespaceState({
+			namespaces: [],
+			isLoading: true,
+			error: "",
+		});
+
+		try {
+			const nextNamespaces = await fetchClusterNamespaces(
+				fetch,
+				clusterId,
+				apiBaseUrl,
+			);
+			setNamespaceState({
+				namespaces: nextNamespaces,
+				isLoading: false,
+				error: "",
+			});
+		} catch (error) {
+			setNamespaceState({
+				namespaces: [],
+				isLoading: false,
+				error: error.message || "Unable to load namespaces",
+			});
+		}
+	};
 
 	const filteredFields = useMemo(() => {
 		const normalizedSearch = fieldSearch.trim().toLowerCase();
@@ -648,10 +839,12 @@ export function LogViewerScreen({ cluster }) {
 		<div className="flex min-h-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(15,86,166,0.12),transparent_36rem)] text-foreground">
 			<section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/80 dark:border-white/8 dark:bg-[#08121d]">
 				<div className="grid gap-4 border-b border-border/70 px-4 py-4 dark:border-white/8 xl:grid-cols-[14rem_13rem_14rem_minmax(0,1fr)_10.5rem_auto] xl:items-end">
-					<DropdownControl
-						label="Namespace"
+					<NamespaceDropdownControl
 						value={selectedNamespace}
-						options={MOCK_NAMESPACES}
+						options={namespaceOptions}
+						isLoading={namespaceState.isLoading}
+						error={namespaceState.error}
+						onRetry={handleRetryNamespaces}
 						onSelect={(value) =>
 							clusterId && setSelectedNamespace(clusterId, value)
 						}

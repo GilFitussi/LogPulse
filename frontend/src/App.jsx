@@ -273,7 +273,10 @@ function App() {
 				}
 			>
 				{isViewerActive ? (
-					<LogViewerScreen cluster={selectedCluster} />
+					<LogViewerScreen
+						cluster={selectedCluster}
+						apiBaseUrl={API_BASE_URL}
+					/>
 				) : (
 					<WorkspacesScreen
 						clusters={clusters}
