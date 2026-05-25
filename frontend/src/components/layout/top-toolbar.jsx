@@ -3,6 +3,7 @@ import { Activity, Search } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { APP_VIEWS } from "@/lib/viewerNavigation";
 
 export function ToolbarSection({
 	children,
@@ -53,17 +54,60 @@ export function ToolbarActions({ children, className }) {
 	);
 }
 
-export function TopToolbar() {
+function ProductNavTab({ isActive, disabled, onClick, children }) {
 	return (
-		<header className="sticky top-0 z-30 border-b border-toolbar-border/80 bg-toolbar/95 backdrop-blur supports-[backdrop-filter]:bg-toolbar/80">
-			<div className="mx-auto flex h-12 w-full max-w-[96rem] items-center justify-between gap-2 px-3 sm:px-4 lg:px-6">
-				<div className="flex min-w-0 items-center gap-2">
-					<div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/15">
-						<Activity className="size-4.5" aria-hidden="true" />
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			aria-pressed={isActive}
+			className={cn(
+				"rounded-none border-b-2 px-4 py-5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+				isActive
+					? "border-primary text-foreground"
+					: "border-transparent text-muted-foreground hover:text-foreground",
+				disabled &&
+					"cursor-not-allowed text-muted-foreground/50 hover:text-muted-foreground/50",
+			)}
+		>
+			{children}
+		</button>
+	);
+}
+
+export function TopToolbar({
+	currentView = APP_VIEWS.WORKSPACES,
+	onChangeView,
+	canAccessViewer = false,
+}) {
+	return (
+		<header className="sticky top-0 z-30 border-b border-toolbar-border bg-toolbar text-foreground backdrop-blur">
+			<div className="mx-auto flex h-16 w-full max-w-none items-center justify-between gap-4 px-5 lg:px-6">
+				<div className="flex min-w-0 items-center gap-4">
+					<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
+						<Activity className="size-5" aria-hidden="true" />
 					</div>
-					<h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
+					<h1 className="truncate text-lg font-semibold tracking-tight text-foreground">
 						OS-LogPulse
 					</h1>
+					<nav
+						className="ml-4 flex h-16 items-center gap-6 border-l border-toolbar-border/40 pl-6"
+						aria-label="Product navigation"
+					>
+						<ProductNavTab
+							isActive={currentView === APP_VIEWS.WORKSPACES}
+							onClick={() => onChangeView?.(APP_VIEWS.WORKSPACES)}
+						>
+							Workspaces
+						</ProductNavTab>
+						<ProductNavTab
+							isActive={currentView === APP_VIEWS.VIEWER}
+							disabled={!canAccessViewer}
+							onClick={() => onChangeView?.(APP_VIEWS.VIEWER)}
+						>
+							Log Viewer
+						</ProductNavTab>
+					</nav>
 				</div>
 
 				<div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

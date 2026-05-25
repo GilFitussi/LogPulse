@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ClusterNamespaceWorkspace } from "@/components/cluster-namespace-workspace";
-import { ClustersSidebar } from "@/components/clusters-sidebar";
-import {
-	AppShell,
-	ContentLayout,
-	PageContainer,
-	Panel,
-} from "@/components/layout/app-shell";
+import { LogViewerScreen } from "@/components/log-viewer-screen";
+import { AppShell, PageContainer } from "@/components/layout/app-shell";
 import { TopToolbar } from "@/components/layout/top-toolbar";
+import { WorkspacesScreen } from "@/components/workspaces-screen";
+import { APP_VIEWS, canOpenViewer, openViewer } from "@/lib/viewerNavigation";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -36,98 +32,12 @@ function getClusterApiErrorMessage(data, fallbackMessage) {
 	return data.error || fallbackMessage;
 }
 
-function getWorkspaceStatusConfig(cluster) {
-	const normalizedStatus = String(
-		cluster?.lastConnectionStatus || "",
-	).toLowerCase();
-
-	if (
-		["connected", "success", "online", "ok", "healthy"].includes(
-			normalizedStatus,
-		)
-	) {
-		return {
-			label: "Connected",
-			className:
-				"bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
-			dotClassName: "bg-emerald-500",
-		};
-	}
-
-	if (["error", "failed", "offline", "unhealthy"].includes(normalizedStatus)) {
-		return {
-			label: "Connection issue",
-			className: "bg-red-500/10 text-red-700 ring-red-500/20 dark:text-red-300",
-			dotClassName: "bg-red-500",
-		};
-	}
-
-	if (["checking", "connecting", "pending"].includes(normalizedStatus)) {
-		return {
-			label: "Checking",
-			className: "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300",
-			dotClassName: "bg-sky-500",
-		};
-	}
-
-	return {
-		label: normalizedStatus ? "Logged out" : "Not checked",
-		className: "bg-muted text-muted-foreground ring-border",
-		dotClassName: "bg-muted-foreground/60",
-	};
-}
-
-function SelectedClusterWorkspaceHeader({ cluster }) {
-	if (!cluster) {
-		return null;
-	}
-
-	const statusConfig = getWorkspaceStatusConfig(cluster);
-	const statusDetail =
-		cluster.lastConnectionError ||
-		(cluster.lastConnectedAt
-			? `Last connected ${new Date(cluster.lastConnectedAt).toLocaleString()}`
-			: "No connection check recorded");
-
-	return (
-		<div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/60 px-3 py-2">
-			<div className="min-w-0">
-				<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					Current workspace
-				</p>
-				<h2 className="mt-0.5 truncate text-base font-semibold text-foreground">
-					{cluster.name}
-				</h2>
-				<p className="mt-0.5 truncate text-xs text-muted-foreground">
-					{cluster.apiUrl}
-				</p>
-			</div>
-			<div className="flex flex-wrap items-center gap-1.5 text-xs">
-				<span
-					className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 ring-1 ${statusConfig.className}`}
-					title={statusDetail}
-				>
-					<span
-						className={`size-1.5 rounded-full ${statusConfig.dotClassName}`}
-						aria-hidden="true"
-					/>
-					{statusConfig.label}
-				</span>
-				{cluster.defaultNamespace ? (
-					<span className="rounded-full bg-muted px-2 py-1 text-muted-foreground ring-1 ring-border">
-						Default namespace: {cluster.defaultNamespace}
-					</span>
-				) : null}
-			</div>
-		</div>
-	);
-}
-
 function App() {
 	const [clusters, setClusters] = useState([]);
 	const [clustersError, setClustersError] = useState("");
 	const [isClustersLoading, setIsClustersLoading] = useState(true);
 	const [selectedClusterId, setSelectedClusterId] = useState(null);
+	const [currentView, setCurrentView] = useState(APP_VIEWS.WORKSPACES);
 
 	const loadClusters = useCallback(async () => {
 		setIsClustersLoading(true);
@@ -328,32 +238,59 @@ function App() {
 		[clusters],
 	);
 
+	const handleOpenViewer = useCallback(() => {
+		setCurrentView((current) => openViewer(current, selectedCluster));
+	}, [selectedCluster]);
+
+	const handleChangeView = useCallback(
+		(nextView) => {
+			if (nextView === APP_VIEWS.WORKSPACES) {
+				setCurrentView(APP_VIEWS.WORKSPACES);
+				return;
+			}
+
+			if (nextView === APP_VIEWS.VIEWER) {
+				setCurrentView((current) => openViewer(current, selectedCluster));
+			}
+		},
+		[selectedCluster],
+	);
+
+	const isViewerActive = currentView === APP_VIEWS.VIEWER;
+
 	return (
 		<AppShell>
-			<TopToolbar />
-			<PageContainer>
-				<ContentLayout className="min-h-0 flex-1 lg:flex-row">
-					<ClustersSidebar
+			<TopToolbar
+				currentView={currentView}
+				onChangeView={handleChangeView}
+				canAccessViewer={canOpenViewer(selectedCluster)}
+			/>
+			<PageContainer
+				className={
+					isViewerActive
+						? "max-w-none gap-0 px-0 py-0 sm:px-0 lg:px-0"
+						: undefined
+				}
+			>
+				{isViewerActive ? (
+					<LogViewerScreen cluster={selectedCluster} />
+				) : (
+					<WorkspacesScreen
 						clusters={clusters}
 						error={clustersError}
-						isLoading={isClustersLoading}
+						isClustersLoading={isClustersLoading}
 						onCreateCluster={createCluster}
 						onDeleteCluster={deleteCluster}
 						onLoginCluster={loginToCluster}
 						onLogoutCluster={logoutFromCluster}
+						onOpenViewer={handleOpenViewer}
 						onRefresh={loadClusters}
 						onSelectCluster={handleSelectCluster}
 						onUpdateCluster={updateCluster}
+						selectedCluster={selectedCluster}
 						selectedClusterId={selectedClusterId}
 					/>
-					<Panel className="min-h-0 flex-1 border-border/50 bg-card/50 p-2">
-						<SelectedClusterWorkspaceHeader cluster={selectedCluster} />
-						<ClusterNamespaceWorkspace
-							cluster={selectedCluster}
-							apiBaseUrl={API_BASE_URL}
-						/>
-					</Panel>
-				</ContentLayout>
+				)}
 			</PageContainer>
 		</AppShell>
 	);

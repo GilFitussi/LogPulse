@@ -396,7 +396,7 @@ function ClusterLoginModal({
 				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
 					<div className="mb-4">
 						<Dialog.Title className="text-base font-semibold text-foreground">
-							Login to cluster
+							Connect to cluster
 						</Dialog.Title>
 						<Dialog.Description className="mt-1 text-sm text-muted-foreground">
 							Authenticate to {cluster.name} with username/password or an
@@ -519,84 +519,10 @@ function ClusterLoginModal({
 								</Button>
 							</Dialog.Close>
 							<Button type="submit" disabled={isSubmitting}>
-								{isSubmitting ? "Logging in..." : "Login"}
+								{isSubmitting ? "Connecting..." : "Connect"}
 							</Button>
 						</div>
 					</form>
-				</Dialog.Content>
-			</Dialog.Portal>
-		</Dialog.Root>
-	);
-}
-
-function LogoutClusterDialog({ cluster, onLogoutCluster, onOpenModalChange }) {
-	const [isOpen, setIsOpen] = useState(false);
-	const [error, setError] = useState("");
-	const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-	const handleOpenChange = (nextOpen) => {
-		setIsOpen(nextOpen);
-		onOpenModalChange?.(nextOpen);
-
-		if (!nextOpen) {
-			setError("");
-			setIsLoggingOut(false);
-		}
-	};
-
-	const handleLogout = async () => {
-		setIsLoggingOut(true);
-		setError("");
-
-		try {
-			await onLogoutCluster(cluster);
-			setIsOpen(false);
-		} catch (logoutError) {
-			setError(logoutError.message || "Unable to logout from cluster.");
-		} finally {
-			setIsLoggingOut(false);
-		}
-	};
-
-	return (
-		<Dialog.Root open={isOpen} onOpenChange={handleOpenChange}>
-			<Dialog.Trigger asChild>
-				<DropdownMenuItem onSelect={(event) => event.preventDefault()}>
-					<LogOut className="size-3.5" aria-hidden="true" />
-					Logout
-				</DropdownMenuItem>
-			</Dialog.Trigger>
-			<Dialog.Portal>
-				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
-				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl outline-none">
-					<Dialog.Title className="text-base font-semibold text-foreground">
-						Logout from cluster?
-					</Dialog.Title>
-					<Dialog.Description className="mt-2 text-sm text-muted-foreground">
-						This will run oc logout for "{cluster.name}" and refresh the cluster
-						connection status.
-					</Dialog.Description>
-
-					{error ? (
-						<p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive ring-1 ring-destructive/20">
-							{error}
-						</p>
-					) : null}
-
-					<div className="mt-4 flex justify-end gap-2">
-						<Dialog.Close asChild>
-							<Button type="button" variant="outline" disabled={isLoggingOut}>
-								Cancel
-							</Button>
-						</Dialog.Close>
-						<Button
-							type="button"
-							onClick={handleLogout}
-							disabled={isLoggingOut}
-						>
-							{isLoggingOut ? "Logging out..." : "Logout"}
-						</Button>
-					</div>
 				</Dialog.Content>
 			</Dialog.Portal>
 		</Dialog.Root>
@@ -686,7 +612,6 @@ function ClusterListItem({
 	isSelected,
 	onDeleteCluster,
 	onLoginCluster,
-	onLogoutCluster,
 	onSelectCluster,
 	onUpdateCluster,
 }) {
@@ -694,7 +619,7 @@ function ClusterListItem({
 	const isConnected =
 		String(cluster.lastConnectionStatus || "").toLowerCase() === "connected";
 	const handleModalOpenChange = (isOpen) => {
-		if (isOpen) {
+		if (!isOpen) {
 			setIsActionsOpen(false);
 		}
 	};
@@ -703,24 +628,24 @@ function ClusterListItem({
 		<div
 			role="listitem"
 			className={cn(
-				"relative rounded-md border transition-colors",
+				"relative rounded-xl border transition-colors",
 				isSelected
-					? "border-primary/45 bg-primary/10 shadow-sm"
-					: "border-transparent hover:border-border hover:bg-muted/50",
+					? "border-primary/65 bg-primary/10 shadow-[0_0_0_1px_var(--primary)]"
+					: "border-transparent hover:border-border/70 hover:bg-muted/30",
 			)}
 		>
 			<button
 				type="button"
 				onClick={() => onSelectCluster(cluster.id)}
 				aria-current={isSelected ? "true" : undefined}
-				className="w-full rounded-md p-2 pr-9 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+				className="w-full rounded-xl p-4 pr-12 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 			>
 				<div className="flex items-start justify-between gap-2">
 					<div className="min-w-0">
-						<p className="truncate text-sm font-medium text-foreground">
+						<p className="truncate text-base font-semibold text-foreground">
 							{cluster.name}
 						</p>
-						<p className="mt-0.5 truncate text-xs text-muted-foreground">
+						<p className="mt-2 truncate text-sm text-muted-foreground">
 							{cluster.apiUrl}
 						</p>
 					</div>
@@ -739,19 +664,19 @@ function ClusterListItem({
 					) : null}
 				</div>
 				{cluster.description ? (
-					<p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+					<p className="mt-3 line-clamp-2 text-xs text-muted-foreground">
 						{cluster.description}
 					</p>
 				) : null}
 			</button>
-			<div className="absolute right-1.5 top-1.5">
+			<div className="absolute right-2 top-3">
 				<DropdownMenu open={isActionsOpen} onOpenChange={setIsActionsOpen}>
 					<DropdownMenuTrigger asChild>
 						<ToolbarButton
 							type="button"
 							aria-label={`Cluster actions for ${cluster.name}`}
 							title="Cluster actions"
-							className="h-6 w-6 px-0"
+							className="h-8 w-8 rounded-xl bg-muted/40 px-0"
 						>
 							<MoreHorizontal className="size-3.5" aria-hidden="true" />
 						</ToolbarButton>
@@ -767,16 +692,9 @@ function ClusterListItem({
 										onSelect={(event) => event.preventDefault()}
 									>
 										<KeyRound className="size-3.5" aria-hidden="true" />
-										Login
+										Connect
 									</DropdownMenuItem>
 								}
-							/>
-						) : null}
-						{onLogoutCluster && isConnected ? (
-							<LogoutClusterDialog
-								cluster={cluster}
-								onLogoutCluster={onLogoutCluster}
-								onOpenModalChange={handleModalOpenChange}
 							/>
 						) : null}
 						<ClusterFormModal
@@ -810,28 +728,21 @@ export function ClustersSidebar({
 	onCreateCluster,
 	onDeleteCluster,
 	onLoginCluster,
-	onLogoutCluster,
 	onRefresh,
 	onSelectCluster,
 	onUpdateCluster,
 	selectedClusterId,
 }) {
-	const selectedCluster = clusters.find(
-		(cluster) => String(cluster.id) === String(selectedClusterId),
-	);
-
 	return (
-		<aside className="flex min-h-0 w-full flex-col rounded-lg border border-border/80 bg-card/80 text-card-foreground shadow-sm lg:w-80 lg:shrink-0">
-			<div className="flex items-center justify-between gap-2 border-b border-border/60 p-3">
+		<aside className="flex min-h-0 w-full flex-col rounded-xl border border-border/70 bg-card/45 text-card-foreground shadow-sm lg:w-[28rem] lg:shrink-0">
+			<div className="flex items-center justify-between gap-3 border-b border-border/50 p-5">
 				<div className="min-w-0">
-					<h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-						<Server className="size-4 text-primary" aria-hidden="true" />
+					<h2 className="flex items-center gap-3 text-lg font-semibold text-foreground">
+						<Server className="size-5 text-primary" aria-hidden="true" />
 						Clusters
 					</h2>
-					<p className="mt-0.5 truncate text-xs text-muted-foreground">
-						{selectedCluster
-							? `Selected: ${selectedCluster.name}`
-							: "Choose a cluster"}
+					<p className="mt-1 truncate text-sm text-muted-foreground">
+						{clusters.length} cluster{clusters.length === 1 ? "" : "s"}
 					</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
@@ -864,7 +775,7 @@ export function ClustersSidebar({
 				</div>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-auto p-2">
+			<div className="min-h-0 flex-1 overflow-auto p-3">
 				{isLoading ? (
 					<LoadingState label="Loading clusters..." className="p-3" />
 				) : error ? (
@@ -880,7 +791,7 @@ export function ClustersSidebar({
 						className="m-1"
 					/>
 				) : (
-					<div className="space-y-1" role="list" aria-label="Clusters">
+					<div className="space-y-3" role="list" aria-label="Clusters">
 						{clusters.map((cluster) => (
 							<ClusterListItem
 								key={cluster.id}
@@ -888,7 +799,6 @@ export function ClustersSidebar({
 								isSelected={String(cluster.id) === String(selectedClusterId)}
 								onDeleteCluster={onDeleteCluster}
 								onLoginCluster={onLoginCluster}
-								onLogoutCluster={onLogoutCluster}
 								onSelectCluster={onSelectCluster}
 								onUpdateCluster={onUpdateCluster}
 							/>

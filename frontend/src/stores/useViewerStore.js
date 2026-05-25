@@ -11,7 +11,7 @@ export function createDefaultClusterViewerState() {
 	};
 }
 
-function normalizeClusterId(clusterId) {
+export function normalizeClusterId(clusterId) {
 	if (clusterId === null || clusterId === undefined) {
 		throw new Error("clusterId is required");
 	}
@@ -36,6 +36,48 @@ function createClusterStateMapWithEntry(
 	};
 }
 
+export function getClusterViewerStateOrDefault(
+	viewerStateByCluster,
+	clusterId,
+) {
+	const normalizedClusterId = normalizeClusterId(clusterId);
+
+	return (
+		viewerStateByCluster?.[normalizedClusterId] ||
+		createDefaultClusterViewerState()
+	);
+}
+
+function createNextClusterViewerState(currentClusterState, update) {
+	const normalizedCurrentState = {
+		...createDefaultClusterViewerState(),
+		...currentClusterState,
+	};
+
+	if (typeof update === "function") {
+		return update(normalizedCurrentState);
+	}
+
+	return {
+		...normalizedCurrentState,
+		...update,
+	};
+}
+
+function updateClusterViewerStateMap(viewerStateByCluster, clusterId, update) {
+	const normalizedClusterId = normalizeClusterId(clusterId);
+	const currentClusterState = getClusterViewerStateOrDefault(
+		viewerStateByCluster,
+		normalizedClusterId,
+	);
+
+	return createClusterStateMapWithEntry(
+		viewerStateByCluster,
+		normalizedClusterId,
+		createNextClusterViewerState(currentClusterState, update),
+	);
+}
+
 export const useViewerStore = create((set, get) => ({
 	viewerStateByCluster: {},
 	getOrCreateClusterState: (clusterId) => {
@@ -57,25 +99,49 @@ export const useViewerStore = create((set, get) => ({
 
 		return get().viewerStateByCluster[normalizedClusterId];
 	},
+	patchClusterState: (clusterId, update) => {
+		set((state) => ({
+			viewerStateByCluster: updateClusterViewerStateMap(
+				state.viewerStateByCluster,
+				clusterId,
+				update,
+			),
+		}));
+
+		return get().viewerStateByCluster[normalizeClusterId(clusterId)];
+	},
 	setSelectedNamespace: (clusterId, namespace) => {
-		const normalizedClusterId = normalizeClusterId(clusterId);
-
-		get().getOrCreateClusterState(normalizedClusterId);
-
-		set((state) => {
-			const currentClusterState =
-				state.viewerStateByCluster[normalizedClusterId];
-
-			return {
-				viewerStateByCluster: createClusterStateMapWithEntry(
-					state.viewerStateByCluster,
-					normalizedClusterId,
-					{
-						...currentClusterState,
-						selectedNamespace: namespace,
-					},
-				),
-			};
+		return get().patchClusterState(clusterId, {
+			selectedNamespace: namespace,
 		});
+	},
+	setSelectedDeployment: (clusterId, deployment) => {
+		return get().patchClusterState(clusterId, {
+			selectedDeployment: deployment,
+		});
+	},
+	setSelectedContainer: (clusterId, container) => {
+		return get().patchClusterState(clusterId, {
+			selectedContainer: container,
+		});
+	},
+	setOpenPodTabs: (clusterId, openPodTabs) => {
+		return get().patchClusterState(clusterId, {
+			openPodTabs,
+		});
+	},
+	setActiveTabId: (clusterId, activeTabId) => {
+		return get().patchClusterState(clusterId, {
+			activeTabId,
+		});
+	},
+	setTabLogState: (clusterId, tabId, nextTabLogState) => {
+		return get().patchClusterState(clusterId, (currentClusterState) => ({
+			...currentClusterState,
+			tabLogState: {
+				...currentClusterState.tabLogState,
+				[tabId]: nextTabLogState,
+			},
+		}));
 	},
 }));
