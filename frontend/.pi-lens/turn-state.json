@@ -1,0 +1,68 @@
+{
+  "files": {
+    "src/components/workspaces-screen.jsx": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 347
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-23T21:34:30.240Z"
+    },
+    "src/components/log-viewer-screen.jsx": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 1078
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-25T18:27:48.450Z"
+    },
+    "src/App.jsx": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 300
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-23T22:23:40.789Z"
+    },
+    "test/viewerNavigation.test.js": {
+      "modifiedRanges": [
+        {
+          "start": 92,
+          "end": 102
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-05-23T19:31:08.615Z"
+    },
+    "src/components/layout/top-toolbar.jsx": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 162
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-23T21:17:43.107Z"
+    },
+    "src/components/clusters-sidebar.jsx": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 896
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-23T21:34:51.185Z"
+    }
+  },
+  "turnCycles": 0,
+  "maxCycles": 3,
+  "lastUpdated": "2026-05-25T18:27:48.450Z",
+  "sessionId": "lens-mplfwf6c-e319385e"
+}
