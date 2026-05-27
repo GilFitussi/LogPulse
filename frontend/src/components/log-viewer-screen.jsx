@@ -10,6 +10,7 @@ import {
 	FileJson2,
 	Filter,
 	Info,
+	Loader2,
 	MoreHorizontal,
 	Pause,
 	Play,
@@ -28,6 +29,8 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { fetchClusterDeployments } from "@/lib/deployments";
+import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
 import {
@@ -36,12 +39,6 @@ import {
 	useViewerStore,
 } from "@/stores/useViewerStore";
 
-const MOCK_NAMESPACES = ["production", "staging", "dev"];
-const MOCK_DEPLOYMENTS = [
-	"payment-service",
-	"checkout-service",
-	"orders-service",
-];
 const MOCK_PODS = [
 	"payment-service-api-7d4f6c7d89-lx2pm",
 	"payment-service-worker-6b5dd7f5c8-9k2nt",
@@ -288,23 +285,33 @@ function DropdownControl({
 	onSelect,
 	icon: Icon,
 	className,
+	disabled = false,
+	placeholder,
+	isLoading = false,
 }) {
+	const displayValue = value || placeholder;
+
 	return (
 		<div className={cn("min-w-0 space-y-2", className)}>
 			<ControlLabel>{label}</ControlLabel>
 			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
+				<DropdownMenuTrigger asChild disabled={disabled}>
 					<Button
 						variant="outline"
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						disabled={disabled}
+						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
 							{Icon ? (
 								<Icon className="size-4 shrink-0 text-muted-foreground" />
 							) : null}
-							<span className="truncate">{value}</span>
+							<span className="truncate">{displayValue}</span>
 						</span>
-						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+						{isLoading ? (
+							<Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+						) : (
+							<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+						)}
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent className="w-64 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
@@ -324,6 +331,79 @@ function DropdownControl({
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
+		</div>
+	);
+}
+
+function DeploymentDropdown({
+	selectedDeployment,
+	deployments,
+	isDisabled,
+	isLoading,
+	error,
+	onRetry,
+	onSelect,
+	className,
+}) {
+	const hasDeployments = deployments.length > 0;
+	const displayValue = isDisabled
+		? "Select namespace"
+		: selectedDeployment || "Select deployment";
+
+	return (
+		<div className={cn("min-w-0 space-y-2", className)}>
+			<ControlLabel>Deployment</ControlLabel>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild disabled={isDisabled}>
+					<Button
+						variant="outline"
+						disabled={isDisabled}
+						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+					>
+						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
+							<span className="truncate">{displayValue}</span>
+						</span>
+						{isLoading ? (
+							<Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+						) : (
+							<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+						)}
+					</Button>
+				</DropdownMenuTrigger>
+				{!isDisabled && !isLoading ? (
+					<DropdownMenuContent className="w-64 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+						{error ? (
+							<>
+								<div className="px-3 py-2 text-sm text-destructive">
+									{error}
+								</div>
+								<DropdownMenuItem
+									onSelect={() => onRetry?.()}
+									className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+								>
+									Retry
+								</DropdownMenuItem>
+							</>
+						) : hasDeployments ? (
+							deployments.map((deployment) => (
+								<DropdownMenuItem
+									key={deployment.name}
+									onSelect={() => onSelect?.(deployment.name)}
+									className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+								>
+									<div className="flex w-full items-center justify-between gap-3">
+										<span className="truncate">{deployment.name}</span>
+										{deployment.name === selectedDeployment ? (
+											<Check className="size-4 text-primary" />
+										) : null}
+									</div>
+								</DropdownMenuItem>
+							))
+						) : null}
+					</DropdownMenuContent>
+				) : null}
+			</DropdownMenu>
+			{null}
 		</div>
 	);
 }
@@ -541,7 +621,10 @@ function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
 	);
 }
 
-export function LogViewerScreen({ cluster }) {
+export function LogViewerScreen({
+	cluster,
+	apiBaseUrl = "http://localhost:3000",
+}) {
 	const clusterId = cluster?.id ?? null;
 	const ensureClusterState = useViewerStore(
 		(state) => state.getOrCreateClusterState,
@@ -586,16 +669,169 @@ export function LogViewerScreen({ cluster }) {
 	const [selectedLogId, setSelectedLogId] = useState(MOCK_LOGS[0].id);
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [selectedPods, setSelectedPods] = useState(MOCK_PODS);
+	const [namespaces, setNamespaces] = useState([]);
+	const [isNamespacesLoading, setIsNamespacesLoading] = useState(false);
+	const [, setNamespacesError] = useState("");
+	const [deployments, setDeployments] = useState([]);
+	const [isDeploymentsLoading, setIsDeploymentsLoading] = useState(false);
+	const [deploymentsError, setDeploymentsError] = useState("");
 
 	const isConnected = isClusterConnected(cluster);
-	const selectedNamespace =
-		clusterViewerState.selectedNamespace ||
-		cluster?.defaultNamespace ||
-		MOCK_NAMESPACES[0];
-	const selectedDeployment =
-		clusterViewerState.selectedDeployment || MOCK_DEPLOYMENTS[0];
+	const selectedNamespace = clusterViewerState.selectedNamespace;
+	const selectedDeployment = clusterViewerState.selectedDeployment;
 	const selectedLog =
 		MOCK_LOGS.find((entry) => entry.id === selectedLogId) || MOCK_LOGS[0];
+	const namespaceOptions = namespaces.map((namespace) => namespace.name);
+
+	useEffect(() => {
+		if (!clusterId) {
+			return undefined;
+		}
+
+		const abortController = new AbortController();
+
+		const loadNamespaces = async () => {
+			setIsNamespacesLoading(true);
+			setNamespacesError("");
+			setNamespaces([]);
+
+			try {
+				const nextNamespaces = await fetchClusterNamespaces(
+					fetch,
+					clusterId,
+					apiBaseUrl,
+				);
+
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setNamespaces(nextNamespaces);
+				setIsNamespacesLoading(false);
+
+				if (
+					selectedNamespace &&
+					!nextNamespaces.some(
+						(namespace) => namespace.name === selectedNamespace,
+					)
+				) {
+					setDeployments([]);
+					setDeploymentsError("");
+					setIsDeploymentsLoading(false);
+					setSelectedPods([]);
+					setSelectedNamespace(clusterId, null);
+				}
+			} catch (error) {
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setNamespaces([]);
+				setNamespacesError(error.message || "Unable to load namespaces");
+				setIsNamespacesLoading(false);
+			}
+		};
+
+		void loadNamespaces();
+
+		return () => {
+			abortController.abort();
+		};
+	}, [apiBaseUrl, clusterId, selectedNamespace, setSelectedNamespace]);
+
+	useEffect(() => {
+		if (!clusterId || !selectedNamespace) {
+			return undefined;
+		}
+
+		const abortController = new AbortController();
+
+		const loadDeployments = async () => {
+			setIsDeploymentsLoading(true);
+			setDeploymentsError("");
+			setDeployments([]);
+
+			try {
+				const nextDeployments = await fetchClusterDeployments(
+					fetch,
+					clusterId,
+					selectedNamespace,
+					apiBaseUrl,
+				);
+
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setDeployments(nextDeployments);
+				setIsDeploymentsLoading(false);
+
+				if (
+					selectedDeployment &&
+					!nextDeployments.some(
+						(deployment) => deployment.name === selectedDeployment,
+					)
+				) {
+					setSelectedDeployment(clusterId, null);
+				}
+			} catch (error) {
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setDeployments([]);
+				setDeploymentsError(error.message || "Unable to load deployments");
+				setIsDeploymentsLoading(false);
+			}
+		};
+
+		void loadDeployments();
+
+		return () => {
+			abortController.abort();
+		};
+	}, [
+		apiBaseUrl,
+		clusterId,
+		selectedDeployment,
+		selectedNamespace,
+		setSelectedDeployment,
+	]);
+
+	const handleRetryDeployments = () => {
+		if (!clusterId || !selectedNamespace) {
+			return;
+		}
+
+		setIsDeploymentsLoading(true);
+		setDeploymentsError("");
+		setDeployments([]);
+
+		void fetchClusterDeployments(
+			fetch,
+			clusterId,
+			selectedNamespace,
+			apiBaseUrl,
+		)
+			.then((nextDeployments) => {
+				setDeployments(nextDeployments);
+				setIsDeploymentsLoading(false);
+
+				if (
+					selectedDeployment &&
+					!nextDeployments.some(
+						(deployment) => deployment.name === selectedDeployment,
+					)
+				) {
+					setSelectedDeployment(clusterId, null);
+				}
+			})
+			.catch((error) => {
+				setDeployments([]);
+				setDeploymentsError(error.message || "Unable to load deployments");
+				setIsDeploymentsLoading(false);
+			});
+	};
 
 	const filteredFields = useMemo(() => {
 		const normalizedSearch = fieldSearch.trim().toLowerCase();
@@ -616,6 +852,18 @@ export function LogViewerScreen({ cluster }) {
 	}, [appliedQuery, selectedPods]);
 
 	const visibleLogs = filteredLogs.slice(0, rowsPerPage);
+
+	const handleSelectNamespace = (value) => {
+		if (!clusterId) {
+			return;
+		}
+
+		setDeployments([]);
+		setDeploymentsError("");
+		setIsDeploymentsLoading(false);
+		setSelectedPods([]);
+		setSelectedNamespace(clusterId, value);
+	};
 
 	const handleApplyQuery = (nextQuery = queryDraft) => {
 		setAppliedQuery(nextQuery);
@@ -648,18 +896,25 @@ export function LogViewerScreen({ cluster }) {
 		<div className="flex min-h-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(15,86,166,0.12),transparent_36rem)] text-foreground">
 			<section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/80 dark:border-white/8 dark:bg-[#08121d]">
 				<div className="grid gap-4 border-b border-border/70 px-4 py-4 dark:border-white/8 xl:grid-cols-[14rem_13rem_14rem_minmax(0,1fr)_10.5rem_auto] xl:items-end">
-					<DropdownControl
-						label="Namespace"
-						value={selectedNamespace}
-						options={MOCK_NAMESPACES}
-						onSelect={(value) =>
-							clusterId && setSelectedNamespace(clusterId, value)
-						}
-					/>
-					<DropdownControl
-						label="Deployment"
-						value={selectedDeployment}
-						options={MOCK_DEPLOYMENTS}
+					<div className="min-w-0 space-y-2">
+						<DropdownControl
+							label="Namespace"
+							value={selectedNamespace}
+							placeholder="Select namespace"
+							options={namespaceOptions}
+							disabled={!clusterId || namespaceOptions.length === 0}
+							isLoading={isNamespacesLoading}
+							onSelect={handleSelectNamespace}
+						/>
+						{null}
+					</div>
+					<DeploymentDropdown
+						selectedDeployment={selectedDeployment}
+						deployments={deployments}
+						isDisabled={!selectedNamespace}
+						isLoading={isDeploymentsLoading}
+						error={deploymentsError}
+						onRetry={handleRetryDeployments}
 						onSelect={(value) =>
 							clusterId && setSelectedDeployment(clusterId, value)
 						}
