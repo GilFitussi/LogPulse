@@ -113,6 +113,7 @@ export const useViewerStore = create((set, get) => ({
 	setSelectedNamespace: (clusterId, namespace) => {
 		return get().patchClusterState(clusterId, {
 			selectedNamespace: namespace,
+			selectedDeployment: null,
 		});
 	},
 	setSelectedDeployment: (clusterId, deployment) => {

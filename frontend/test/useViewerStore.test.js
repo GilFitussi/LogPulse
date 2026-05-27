@@ -74,7 +74,9 @@ test("getOrCreateClusterState returns the existing cluster state without affecti
 	);
 });
 
-test("setSelectedNamespace only updates the targeted cluster", () => {
+test("setSelectedNamespace only updates the targeted cluster and clears deployment selection", () => {
+	useViewerStore.getState().setSelectedDeployment("cluster-a", "api");
+	useViewerStore.getState().setSelectedDeployment("cluster-b", "dns");
 	useViewerStore.getState().setSelectedNamespace("cluster-a", "default");
 	useViewerStore
 		.getState()
@@ -84,10 +86,12 @@ test("setSelectedNamespace only updates the targeted cluster", () => {
 		"cluster-a": {
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "default",
+			selectedDeployment: null,
 		},
 		"cluster-b": {
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "openshift-config",
+			selectedDeployment: null,
 		},
 	});
 });

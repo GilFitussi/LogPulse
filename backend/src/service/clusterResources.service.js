@@ -116,6 +116,48 @@ function buildLabelSelector(matchLabels) {
 	return labels.length > 0 ? labels.join(",") : undefined;
 }
 
+function parseKubernetesErrorBody(body) {
+	if (!body) {
+		return null;
+	}
+
+	if (typeof body === "object") {
+		return body;
+	}
+
+	if (typeof body !== "string") {
+		return null;
+	}
+
+	try {
+		return JSON.parse(body);
+	} catch {
+		return null;
+	}
+}
+
+function getKubernetesApiErrorDetails(error, fallbackMessage) {
+	const parsedBody = parseKubernetesErrorBody(
+		error?.body || error?.response?.body,
+	);
+	const statusCode =
+		error?.statusCode ||
+		error?.response?.statusCode ||
+		parsedBody?.code ||
+		error?.body?.code ||
+		error?.code;
+	const message =
+		parsedBody?.message ||
+		error?.body?.message ||
+		error?.message ||
+		fallbackMessage;
+
+	return {
+		statusCode,
+		message,
+	};
+}
+
 async function withTempKubeconfig(kubeconfigContent, callback) {
 	const tempDirectory = await fs.mkdtemp(
 		path.join(os.tmpdir(), "logpulse-kubeconfig-"),
@@ -162,8 +204,40 @@ async function listClusterNamespaces(clusterId) {
 async function listClusterDeployments(clusterId, namespace) {
 	await requireActiveClusterSession(clusterId);
 	const appsV1Api = getAppsV1Api(clusterId);
-	const response = await appsV1Api.listNamespacedDeployment({ namespace });
-	return getResponseItems(response).map(normalizeDeployment);
+
+	try {
+		const response = await appsV1Api.listNamespacedDeployment({ namespace });
+		return getResponseItems(response).map(normalizeDeployment);
+	} catch (error) {
+		const { statusCode, message } = getKubernetesApiErrorDetails(
+			error,
+			"Unable to list cluster deployments",
+		);
+
+		if (statusCode === 404) {
+			return [];
+		}
+
+		if (statusCode === 403) {
+			throw new AppError("Unable to list cluster deployments", {
+				status: 403,
+				code: "CLUSTER_DEPLOYMENTS_FORBIDDEN",
+				details: {
+					message,
+				},
+				action: "Choose another namespace or request deployment access.",
+			});
+		}
+
+		throw new AppError("Unable to list cluster deployments", {
+			status: 502,
+			code: "CLUSTER_DEPLOYMENTS_UNAVAILABLE",
+			details: {
+				message,
+			},
+			action: "Verify cluster access and try again.",
+		});
+	}
 }
 
 async function listClusterPodsInternal(clusterId, namespace, labelSelector) {

@@ -98,10 +98,12 @@ describe("cluster resources service", () => {
 			{ name: "alpha" },
 			{ name: "beta" },
 		]);
-		expect(mockRunOcCommand).toHaveBeenCalledWith(
-			["--kubeconfig", "/dev/stdin", "projects", "-q"],
-			{ input: "apiVersion: v1\nclusters: []\n" },
-		);
+		expect(mockRunOcCommand).toHaveBeenCalledWith([
+			"--kubeconfig",
+			expect.stringMatching(/logpulse-kubeconfig-.*[\\/]config$/),
+			"projects",
+			"-q",
+		]);
 	});
 
 	it("normalizes deployments from the Kubernetes AppsV1Api", async () => {
@@ -140,6 +142,52 @@ describe("cluster resources service", () => {
 		expect(mockGetAppsV1Api).toHaveBeenCalledWith(1);
 		expect(appsClient.listNamespacedDeployment).toHaveBeenCalledWith({
 			namespace: "apps",
+		});
+	});
+
+	it("returns an empty list when list deployments returns a 404", async () => {
+		const appsClient = {
+			listNamespacedDeployment: jest.fn().mockRejectedValue({
+				statusCode: 404,
+				message: 'namespaces "apps" not found',
+			}),
+		};
+		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
+		mockGetClusterSession.mockReturnValue({
+			clusterId: 1,
+			kubeconfigContent: "cluster-1-config",
+		});
+		mockGetAppsV1Api.mockReturnValue(appsClient);
+
+		await expect(listClusterDeployments(1, "apps")).resolves.toEqual([]);
+	});
+
+	it("surfaces a clean forbidden error when deployment access is denied", async () => {
+		const appsClient = {
+			listNamespacedDeployment: jest.fn().mockRejectedValue({
+				statusCode: 403,
+				body: JSON.stringify({
+					message:
+						'deployments.apps is forbidden: User "gigo1985" cannot list resource "deployments" in API group "apps" in the namespace "openshift-virtualization-os-images"',
+					code: 403,
+				}),
+			}),
+		};
+		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
+		mockGetClusterSession.mockReturnValue({
+			clusterId: 1,
+			kubeconfigContent: "cluster-1-config",
+		});
+		mockGetAppsV1Api.mockReturnValue(appsClient);
+
+		await expect(listClusterDeployments(1, "apps")).rejects.toMatchObject({
+			message: "Unable to list cluster deployments",
+			status: 403,
+			code: "CLUSTER_DEPLOYMENTS_FORBIDDEN",
+			details: {
+				message:
+					'deployments.apps is forbidden: User "gigo1985" cannot list resource "deployments" in API group "apps" in the namespace "openshift-virtualization-os-images"',
+			},
 		});
 	});
 
