@@ -2,7 +2,8 @@ const request = require("supertest");
 const { AppError } = require("../../src/errors/app.error");
 const { getClusterById } = require("../../src/service/clusterManager.service");
 const {
-	getClusterPodLogs,
+	createPodLogSearch,
+	getPodLogSearchResults,
 	listClusterDeployments,
 	listClusterNamespaces,
 	listClusterPods,
@@ -14,7 +15,8 @@ jest.mock("../../src/service/clusterManager.service", () => ({
 }));
 
 jest.mock("../../src/service/clusterResources.service", () => ({
-	getClusterPodLogs: jest.fn(),
+	createPodLogSearch: jest.fn(),
+	getPodLogSearchResults: jest.fn(),
 	listClusterDeployments: jest.fn(),
 	listClusterNamespaces: jest.fn(),
 	listClusterPods: jest.fn(),
@@ -35,7 +37,8 @@ beforeEach(() => {
 	listClusterDeployments.mockReset();
 	listClusterPods.mockReset();
 	listClusterPodsForDeployment.mockReset();
-	getClusterPodLogs.mockReset();
+	createPodLogSearch.mockReset();
+	getPodLogSearchResults.mockReset();
 	getClusterById.mockResolvedValue(cluster);
 });
 
@@ -93,51 +96,79 @@ describe("cluster-scoped resource endpoints", () => {
 		expect(listClusterPodsForDeployment).toHaveBeenCalledWith(1, "apps", "api");
 	});
 
-	it("returns batched pod logs and forwards valid query options", async () => {
-		getClusterPodLogs.mockResolvedValue({
-			logs: ["line 2", "line 1"],
+	it("creates a pod log search session and returns the first combined batch", async () => {
+		createPodLogSearch.mockResolvedValue({
+			searchSessionId: "session-1",
+			namespace: "apps",
+			podNames: ["api-123", "api-456"],
+			windowStartTimestamp: "2026-06-04T14:45:00.000Z",
+			windowEndTimestamp: "2026-06-04T15:00:00.000Z",
 			count: 2,
 			limit: 500,
-			hasMore: true,
-			nextBeforeTimestamp: "2026-06-04T14:20:00.000Z",
+			offset: 0,
+			totalCount: 2,
+			hasMore: false,
+			nextOffset: null,
+			logs: [
+				{
+					podName: "api-123",
+					namespace: "apps",
+					timestamp: "2026-06-04T14:59:00.000Z",
+					level: "INFO",
+					message: "started",
+				},
+			],
 		});
 
-		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20api%20&limit=500&sinceSeconds=60&beforeTimestamp=2026-06-04T14:20:00.000Z",
-		);
+		const response = await request(app.callback())
+			.post("/api/clusters/1/namespaces/apps/log-searches")
+			.send({
+				podNames: ["api-123", "api-456"],
+				sinceSeconds: 900,
+				limit: 500,
+			});
 
 		expect(response.status).toBe(200);
-		expect(response.body).toEqual({
-			logs: ["line 2", "line 1"],
-			count: 2,
+		expect(response.body.searchSessionId).toBe("session-1");
+		expect(createPodLogSearch).toHaveBeenCalledWith(1, "apps", {
+			podNames: ["api-123", "api-456"],
+			sinceSeconds: 900,
 			limit: 500,
-			hasMore: true,
-			nextBeforeTimestamp: "2026-06-04T14:20:00.000Z",
-		});
-		expect(getClusterPodLogs).toHaveBeenCalledWith(1, "apps", "api-123", {
-			container: "api",
-			limit: 500,
-			sinceSeconds: 60,
-			beforeTimestamp: "2026-06-04T14:20:00.000Z",
 		});
 	});
 
-	it("omits container when it is empty after trim", async () => {
-		getClusterPodLogs.mockResolvedValue({
-			logs: ["line 1"],
+	it("returns more results from an existing pod log search session", async () => {
+		getPodLogSearchResults.mockResolvedValue({
+			searchSessionId: "session-1",
+			namespace: "apps",
+			podNames: ["api-123", "api-456"],
+			windowStartTimestamp: "2026-06-04T14:45:00.000Z",
+			windowEndTimestamp: "2026-06-04T15:00:00.000Z",
 			count: 1,
-			limit: 10,
+			limit: 500,
+			offset: 500,
+			totalCount: 501,
 			hasMore: false,
-			nextBeforeTimestamp: null,
+			nextOffset: null,
+			logs: [
+				{
+					podName: "api-456",
+					namespace: "apps",
+					timestamp: "2026-06-04T14:30:00.000Z",
+					level: "ERROR",
+					message: "failed",
+				},
+			],
 		});
 
 		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20%20%20&limit=10",
+			"/api/clusters/1/log-searches/session-1?offset=500&limit=500",
 		);
 
 		expect(response.status).toBe(200);
-		expect(getClusterPodLogs).toHaveBeenCalledWith(1, "apps", "api-123", {
-			limit: 10,
+		expect(getPodLogSearchResults).toHaveBeenCalledWith(1, "session-1", {
+			offset: 500,
+			limit: 500,
 		});
 	});
 
@@ -180,20 +211,42 @@ describe("cluster-scoped resource endpoints", () => {
 		});
 	});
 
-	it("rejects invalid pod log query values with 400", async () => {
+	it("rejects invalid pod log search bodies with 400", async () => {
+		const response = await request(app.callback())
+			.post("/api/clusters/1/namespaces/apps/log-searches")
+			.send({
+				podNames: [],
+				sinceSeconds: "nope",
+				limit: 0,
+				windowEndTimestamp: "not-a-date",
+			});
+
+		expect(response.status).toBe(400);
+		expect(response.body).toEqual({
+			error: "Invalid pod log search body",
+			details: {
+				podNames: '"podNames" does not contain 1 required value(s)',
+				sinceSeconds: '"sinceSeconds" must be a number',
+				limit: '"limit" must be a positive number',
+				windowEndTimestamp: '"windowEndTimestamp" must be in iso format',
+			},
+		});
+		expect(createPodLogSearch).not.toHaveBeenCalled();
+	});
+
+	it("rejects invalid pod log search query values with 400", async () => {
 		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?limit=0&sinceSeconds=nope&beforeTimestamp=not-a-date",
+			"/api/clusters/1/log-searches/session-1?offset=-1&limit=0",
 		);
 
 		expect(response.status).toBe(400);
 		expect(response.body).toEqual({
-			error: "Invalid pod log query",
+			error: "Invalid pod log search query",
 			details: {
+				offset: '"offset" must be greater than or equal to 0',
 				limit: '"limit" must be a positive number',
-				sinceSeconds: '"sinceSeconds" must be a number',
-				beforeTimestamp: '"beforeTimestamp" must be in iso format',
 			},
 		});
-		expect(getClusterPodLogs).not.toHaveBeenCalled();
+		expect(getPodLogSearchResults).not.toHaveBeenCalled();
 	});
 });

@@ -2,7 +2,8 @@ const Router = require("@koa/router");
 const Joi = require("joi");
 const { getClusterById } = require("../service/clusterManager.service");
 const {
-	getClusterPodLogs,
+	createPodLogSearch,
+	getPodLogSearchResults,
 	listClusterDeployments,
 	listClusterNamespaces,
 	listClusterPods,
@@ -29,17 +30,26 @@ const deploymentParamsSchema = Joi.object({
 	deployment: requiredStringSchema,
 }).unknown(true);
 
-const podLogsParamsSchema = Joi.object({
+const podLogSearchParamsSchema = Joi.object({
 	clusterId: clusterIdSchema,
 	namespace: requiredStringSchema,
-	podName: requiredStringSchema,
 }).unknown(true);
 
-const podLogsQuerySchema = Joi.object({
-	container: Joi.string().trim().empty("").optional(),
-	sinceSeconds: Joi.number().integer().positive(),
+const podLogSearchSessionParamsSchema = Joi.object({
+	clusterId: clusterIdSchema,
+	searchSessionId: requiredStringSchema,
+}).unknown(true);
+
+const createPodLogSearchBodySchema = Joi.object({
+	podNames: Joi.array().items(requiredStringSchema).min(1).required(),
+	sinceSeconds: Joi.number().integer().positive().required(),
 	limit: Joi.number().integer().positive().default(500),
-	beforeTimestamp: Joi.string().isoDate(),
+	windowEndTimestamp: Joi.string().isoDate().optional(),
+});
+
+const podLogSearchResultsQuerySchema = Joi.object({
+	offset: Joi.number().integer().min(0).default(0),
+	limit: Joi.number().integer().positive().default(500),
 });
 
 router.use(async (ctx, next) => {
@@ -135,11 +145,11 @@ router.get(
 	},
 );
 
-router.get("/namespaces/:namespace/pods/:podName/logs", async (ctx) => {
+router.post("/namespaces/:namespace/log-searches", async (ctx) => {
 	const params = validateRequest(
 		ctx,
 		ctx.params,
-		podLogsParamsSchema,
+		podLogSearchParamsSchema,
 		"Invalid cluster resource params",
 	);
 
@@ -147,25 +157,52 @@ router.get("/namespaces/:namespace/pods/:podName/logs", async (ctx) => {
 		return;
 	}
 
-	const options = validateRequest(
+	const body = validateRequest(
 		ctx,
-		ctx.request.query,
-		podLogsQuerySchema,
-		"Invalid pod log query",
+		ctx.request.body,
+		createPodLogSearchBodySchema,
+		"Invalid pod log search body",
 	);
 
-	if (!options) {
+	if (!body) {
 		return;
 	}
 
-	const result = await getClusterPodLogs(
+	ctx.body = await createPodLogSearch(
 		ctx.state.clusterId,
 		params.namespace,
-		params.podName,
-		options,
+		body,
+	);
+});
+
+router.get("/log-searches/:searchSessionId", async (ctx) => {
+	const params = validateRequest(
+		ctx,
+		ctx.params,
+		podLogSearchSessionParamsSchema,
+		"Invalid cluster resource params",
 	);
 
-	ctx.body = result;
+	if (!params) {
+		return;
+	}
+
+	const query = validateRequest(
+		ctx,
+		ctx.request.query,
+		podLogSearchResultsQuerySchema,
+		"Invalid pod log search query",
+	);
+
+	if (!query) {
+		return;
+	}
+
+	ctx.body = await getPodLogSearchResults(
+		ctx.state.clusterId,
+		params.searchSessionId,
+		query,
+	);
 });
 
 function validateRequest(ctx, input, schema, errorMessage) {

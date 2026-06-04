@@ -26,11 +26,13 @@ jest.mock("../../src/service/clusterOcLogin.service", () => ({
 }));
 
 jest.mock("../../src/service/clusterResources.service", () => ({
-	getClusterPodLogs: jest.fn(),
+	createPodLogSearch: jest.fn(),
+	getPodLogSearchResults: jest.fn(),
 	listClusterDeployments: jest.fn(),
 	listClusterNamespaces: jest.fn(),
 	listClusterPods: jest.fn(),
 	listClusterPodsForDeployment: jest.fn(),
+	resetPodLogSearchSessions: jest.fn(),
 }));
 
 const app = require("../../src/app");
