@@ -22,6 +22,7 @@ test("createDefaultClusterViewerState returns the expected serializable defaults
 	assert.deepEqual(createDefaultClusterViewerState(), {
 		selectedNamespace: null,
 		selectedDeployment: null,
+		selectedPods: [],
 		selectedContainer: null,
 		openPodTabs: [],
 		activeTabId: null,
@@ -74,9 +75,11 @@ test("getOrCreateClusterState returns the existing cluster state without affecti
 	);
 });
 
-test("setSelectedNamespace only updates the targeted cluster and clears deployment selection", () => {
+test("setSelectedNamespace only updates the targeted cluster and clears deployment and pod selection", () => {
 	useViewerStore.getState().setSelectedDeployment("cluster-a", "api");
+	useViewerStore.getState().setSelectedPods("cluster-a", ["api-123"]);
 	useViewerStore.getState().setSelectedDeployment("cluster-b", "dns");
+	useViewerStore.getState().setSelectedPods("cluster-b", ["dns-456"]);
 	useViewerStore.getState().setSelectedNamespace("cluster-a", "default");
 	useViewerStore
 		.getState()
@@ -87,11 +90,13 @@ test("setSelectedNamespace only updates the targeted cluster and clears deployme
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "default",
 			selectedDeployment: null,
+			selectedPods: [],
 		},
 		"cluster-b": {
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "openshift-config",
 			selectedDeployment: null,
+			selectedPods: [],
 		},
 	});
 });
@@ -100,12 +105,14 @@ test("patchClusterState preserves per-cluster viewer context for tabs and select
 	useViewerStore.getState().patchClusterState("cluster-a", {
 		selectedNamespace: "payments-prod",
 		selectedDeployment: "api",
+		selectedPods: ["api-123", "api-456"],
 		openPodTabs: [{ id: "pod-a-1", podName: "api-123" }],
 		activeTabId: "pod-a-1",
 	});
 	useViewerStore.getState().patchClusterState("cluster-b", {
 		selectedNamespace: "kube-system",
 		selectedDeployment: "dns",
+		selectedPods: ["dns-456"],
 		openPodTabs: [{ id: "pod-b-1", podName: "dns-456" }],
 		activeTabId: "pod-b-1",
 	});
@@ -116,6 +123,7 @@ test("patchClusterState preserves per-cluster viewer context for tabs and select
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "payments-prod",
 			selectedDeployment: "api",
+			selectedPods: ["api-123", "api-456"],
 			openPodTabs: [{ id: "pod-a-1", podName: "api-123" }],
 			activeTabId: "pod-a-1",
 		},
@@ -126,6 +134,7 @@ test("patchClusterState preserves per-cluster viewer context for tabs and select
 			...createDefaultClusterViewerState(),
 			selectedNamespace: "kube-system",
 			selectedDeployment: "dns",
+			selectedPods: ["dns-456"],
 			openPodTabs: [{ id: "pod-b-1", podName: "dns-456" }],
 			activeTabId: "pod-b-1",
 		},
@@ -164,9 +173,28 @@ test("setTabLogState only appends log state for the targeted cluster and tab", (
 	);
 });
 
+test("setSelectedDeployment clears selected pods for the targeted cluster", () => {
+	useViewerStore.getState().setSelectedPods("cluster-a", ["api-123"]);
+	useViewerStore.getState().setSelectedPods("cluster-b", ["dns-456"]);
+	useViewerStore.getState().setSelectedDeployment("cluster-a", "api");
+
+	assert.deepEqual(useViewerStore.getState().viewerStateByCluster, {
+		"cluster-a": {
+			...createDefaultClusterViewerState(),
+			selectedDeployment: "api",
+			selectedPods: [],
+		},
+		"cluster-b": {
+			...createDefaultClusterViewerState(),
+			selectedPods: ["dns-456"],
+		},
+	});
+});
+
 test("viewer state survives app-level back navigation because store state is independent of currentView", () => {
 	useViewerStore.getState().patchClusterState("cluster-a", {
 		selectedNamespace: "default",
+		selectedPods: ["api-123"],
 		activeTabId: "pod-a-1",
 	});
 

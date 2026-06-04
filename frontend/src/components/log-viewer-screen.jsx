@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { fetchClusterDeployments } from "@/lib/deployments";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
+import { fetchDeploymentPods } from "@/lib/pods";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
 import {
@@ -39,11 +40,6 @@ import {
 	useViewerStore,
 } from "@/stores/useViewerStore";
 
-const MOCK_PODS = [
-	"payment-service-api-7d4f6c7d89-lx2pm",
-	"payment-service-worker-6b5dd7f5c8-9k2nt",
-	"payment-service-web-5f6b8c9c7d-m7nq2",
-];
 const MOCK_TIME_RANGES = ["Last 15 minutes", "Last 1 hour", "Last 24 hours"];
 const MOCK_COLUMN_PRESETS = ["Default", "Compact", "Debug"];
 const MOCK_PAGE_SIZES = [25, 50, 100, 250];
@@ -408,54 +404,94 @@ function DeploymentDropdown({
 	);
 }
 
-function PodsDropdown({ selectedPods, onToggle, className }) {
-	const label =
-		selectedPods.length === 0
+function PodsDropdown({
+	selectedPods,
+	pods,
+	isDisabled,
+	isLoading,
+	error,
+	onRetry,
+	onToggle,
+	className,
+}) {
+	const label = isDisabled
+		? "Select deployment"
+		: selectedPods.length === 0
 			? "Select pods"
 			: `${selectedPods.length} selected`;
+	const hasPods = pods.length > 0;
 
 	return (
 		<div className={cn("min-w-0 space-y-2", className)}>
 			<ControlLabel>Pods</ControlLabel>
 			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
+				<DropdownMenuTrigger asChild disabled={isDisabled}>
 					<Button
 						variant="outline"
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						disabled={isDisabled}
+						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="truncate">{label}</span>
-						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+						{isLoading ? (
+							<Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+						) : (
+							<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+						)}
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-80 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
-					{MOCK_PODS.map((pod) => {
-						const checked = selectedPods.includes(pod);
-						return (
-							<DropdownMenuItem
-								key={pod}
-								onSelect={(event) => {
-									event.preventDefault();
-									onToggle(pod);
-								}}
-								className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
-							>
-								<div className="flex w-full items-center gap-3">
-									<span
-										className={cn(
-											"flex size-4 items-center justify-center rounded-sm border",
-											checked
-												? "border-primary bg-primary/20 text-primary"
-												: "border-white/20 text-transparent",
-										)}
-									>
-										<Check className="size-3" />
-									</span>
-									<span className="truncate">{pod}</span>
+				{!isDisabled ? (
+					<DropdownMenuContent className="w-80 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+						{isLoading ? (
+							<div className="px-3 py-2 text-sm text-muted-foreground">
+								Loading pods...
+							</div>
+						) : error ? (
+							<>
+								<div className="px-3 py-2 text-sm text-destructive">
+									{error}
 								</div>
-							</DropdownMenuItem>
-						);
-					})}
-				</DropdownMenuContent>
+								<DropdownMenuItem
+									onSelect={() => onRetry?.()}
+									className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+								>
+									Retry
+								</DropdownMenuItem>
+							</>
+						) : hasPods ? (
+							pods.map((pod) => {
+								const checked = selectedPods.includes(pod.name);
+								return (
+									<DropdownMenuItem
+										key={pod.name}
+										onSelect={(event) => {
+											event.preventDefault();
+											onToggle(pod.name);
+										}}
+										className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+									>
+										<div className="flex w-full items-center gap-3">
+											<span
+												className={cn(
+													"flex size-4 items-center justify-center rounded-sm border",
+													checked
+														? "border-primary bg-primary/20 text-primary"
+														: "border-white/20 text-transparent",
+												)}
+											>
+												<Check className="size-3" />
+											</span>
+											<span className="truncate">{pod.name}</span>
+										</div>
+									</DropdownMenuItem>
+								);
+							})
+						) : (
+							<div className="px-3 py-2 text-sm text-muted-foreground">
+								No pods found for this deployment
+							</div>
+						)}
+					</DropdownMenuContent>
+				) : null}
 			</DropdownMenu>
 		</div>
 	);
@@ -635,6 +671,7 @@ export function LogViewerScreen({
 	const setSelectedDeployment = useViewerStore(
 		(state) => state.setSelectedDeployment,
 	);
+	const setSelectedPods = useViewerStore((state) => state.setSelectedPods);
 	const clusterViewerState = useViewerStore((state) => {
 		if (!clusterId) {
 			return createDefaultClusterViewerState();
@@ -668,17 +705,20 @@ export function LogViewerScreen({
 	const [isDetailsOpen, setIsDetailsOpen] = useState(true);
 	const [selectedLogId, setSelectedLogId] = useState(MOCK_LOGS[0].id);
 	const [isStreaming, setIsStreaming] = useState(false);
-	const [selectedPods, setSelectedPods] = useState(MOCK_PODS);
 	const [namespaces, setNamespaces] = useState([]);
 	const [isNamespacesLoading, setIsNamespacesLoading] = useState(false);
 	const [, setNamespacesError] = useState("");
 	const [deployments, setDeployments] = useState([]);
 	const [isDeploymentsLoading, setIsDeploymentsLoading] = useState(false);
 	const [deploymentsError, setDeploymentsError] = useState("");
+	const [pods, setPods] = useState([]);
+	const [isPodsLoading, setIsPodsLoading] = useState(false);
+	const [podsError, setPodsError] = useState("");
 
 	const isConnected = isClusterConnected(cluster);
 	const selectedNamespace = clusterViewerState.selectedNamespace;
 	const selectedDeployment = clusterViewerState.selectedDeployment;
+	const selectedPods = clusterViewerState.selectedPods;
 	const selectedLog =
 		MOCK_LOGS.find((entry) => entry.id === selectedLogId) || MOCK_LOGS[0];
 	const namespaceOptions = namespaces.map((namespace) => namespace.name);
@@ -718,7 +758,9 @@ export function LogViewerScreen({
 					setDeployments([]);
 					setDeploymentsError("");
 					setIsDeploymentsLoading(false);
-					setSelectedPods([]);
+					setPods([]);
+					setPodsError("");
+					setIsPodsLoading(false);
 					setSelectedNamespace(clusterId, null);
 				}
 			} catch (error) {
@@ -833,6 +875,78 @@ export function LogViewerScreen({
 			});
 	};
 
+	useEffect(() => {
+		if (!clusterId || !selectedNamespace || !selectedDeployment) {
+			return undefined;
+		}
+
+		const abortController = new AbortController();
+
+		const loadPods = async () => {
+			setIsPodsLoading(true);
+			setPodsError("");
+			setPods([]);
+
+			try {
+				const nextPods = await fetchDeploymentPods(
+					fetch,
+					clusterId,
+					selectedNamespace,
+					selectedDeployment,
+					apiBaseUrl,
+				);
+
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setPods(nextPods);
+				setIsPodsLoading(false);
+			} catch (error) {
+				if (abortController.signal.aborted) {
+					return;
+				}
+
+				setPods([]);
+				setPodsError(error.message || "Unable to load pods");
+				setIsPodsLoading(false);
+			}
+		};
+
+		void loadPods();
+
+		return () => {
+			abortController.abort();
+		};
+	}, [apiBaseUrl, clusterId, selectedDeployment, selectedNamespace]);
+
+	const handleRetryPods = () => {
+		if (!clusterId || !selectedNamespace || !selectedDeployment) {
+			return;
+		}
+
+		setIsPodsLoading(true);
+		setPodsError("");
+		setPods([]);
+
+		void fetchDeploymentPods(
+			fetch,
+			clusterId,
+			selectedNamespace,
+			selectedDeployment,
+			apiBaseUrl,
+		)
+			.then((nextPods) => {
+				setPods(nextPods);
+				setIsPodsLoading(false);
+			})
+			.catch((error) => {
+				setPods([]);
+				setPodsError(error.message || "Unable to load pods");
+				setIsPodsLoading(false);
+			});
+	};
+
 	const filteredFields = useMemo(() => {
 		const normalizedSearch = fieldSearch.trim().toLowerCase();
 		return FIELD_ROWS.filter((field) => {
@@ -853,6 +967,17 @@ export function LogViewerScreen({
 
 	const visibleLogs = filteredLogs.slice(0, rowsPerPage);
 
+	const handleSelectDeployment = (value) => {
+		if (!clusterId) {
+			return;
+		}
+
+		setPods([]);
+		setPodsError("");
+		setIsPodsLoading(false);
+		setSelectedDeployment(clusterId, value);
+	};
+
 	const handleSelectNamespace = (value) => {
 		if (!clusterId) {
 			return;
@@ -861,7 +986,9 @@ export function LogViewerScreen({
 		setDeployments([]);
 		setDeploymentsError("");
 		setIsDeploymentsLoading(false);
-		setSelectedPods([]);
+		setPods([]);
+		setPodsError("");
+		setIsPodsLoading(false);
 		setSelectedNamespace(clusterId, value);
 	};
 
@@ -881,15 +1008,16 @@ export function LogViewerScreen({
 	};
 
 	const togglePod = (pod) => {
-		setSelectedPods((current) => {
-			if (current.includes(pod)) {
-				if (current.length === 1) {
-					return current;
-				}
-				return current.filter((entry) => entry !== pod);
-			}
-			return [...current, pod];
-		});
+		if (!clusterId) {
+			return;
+		}
+
+		setSelectedPods(
+			clusterId,
+			selectedPods.includes(pod)
+				? selectedPods.filter((entry) => entry !== pod)
+				: [...selectedPods, pod],
+		);
 	};
 
 	return (
@@ -915,11 +1043,17 @@ export function LogViewerScreen({
 						isLoading={isDeploymentsLoading}
 						error={deploymentsError}
 						onRetry={handleRetryDeployments}
-						onSelect={(value) =>
-							clusterId && setSelectedDeployment(clusterId, value)
-						}
+						onSelect={handleSelectDeployment}
 					/>
-					<PodsDropdown selectedPods={selectedPods} onToggle={togglePod} />
+					<PodsDropdown
+						selectedPods={selectedPods}
+						pods={pods}
+						isDisabled={!selectedDeployment}
+						isLoading={isPodsLoading}
+						error={podsError}
+						onRetry={handleRetryPods}
+						onToggle={togglePod}
+					/>
 					<DropdownControl
 						label="Time Range"
 						value={selectedTimeRange}
