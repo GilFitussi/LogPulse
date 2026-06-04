@@ -1,24 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	CalendarDays,
 	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
-	Columns3,
 	Copy,
 	FileJson2,
-	Filter,
-	Info,
 	Loader2,
-	MoreHorizontal,
-	Pause,
-	Play,
-	RefreshCw,
-	Save,
 	Search,
-	Settings2,
-	SquareChevronRight,
 	X,
 } from "lucide-react";
 
@@ -31,6 +21,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { fetchClusterDeployments } from "@/lib/deployments";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
+import {
+	combinePodLogDatasets,
+	fetchPodLogs,
+	parsePodLogsDataset,
+} from "@/lib/logs";
 import { fetchDeploymentPods } from "@/lib/pods";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
@@ -40,11 +35,21 @@ import {
 	useViewerStore,
 } from "@/stores/useViewerStore";
 
-const MOCK_TIME_RANGES = ["Last 15 minutes", "Last 1 hour", "Last 24 hours"];
-const MOCK_COLUMN_PRESETS = ["Default", "Compact", "Debug"];
-const MOCK_PAGE_SIZES = [25, 50, 100, 250];
+const MOCK_TIME_RANGES = [
+	"Last 5 minutes",
+	"Last 15 minutes",
+	"Last 1 hour",
+	"Last 6 hours",
+	"Last 24 hours",
+];
+const TIME_RANGE_TO_SINCE_SECONDS = {
+	"Last 5 minutes": 300,
+	"Last 15 minutes": 900,
+	"Last 1 hour": 3600,
+	"Last 6 hours": 21600,
+	"Last 24 hours": 86400,
+};
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
-
 const FIELD_ROWS = [
 	{ name: "@timestamp", type: "date" },
 	{ name: "message", type: "text" },
@@ -52,194 +57,31 @@ const FIELD_ROWS = [
 	{ name: "service.name", type: "keyword" },
 	{ name: "kubernetes.namespace_name", type: "keyword" },
 	{ name: "kubernetes.pod.name", type: "keyword" },
-	{ name: "kubernetes.container.name", type: "keyword" },
-	{ name: "trace.id", type: "keyword" },
+	{ name: "kubernetes.deployment.name", type: "keyword" },
 	{ name: "http.request.method", type: "keyword" },
 	{ name: "http.response.status_code", type: "long" },
-	{ name: "url.path", type: "keyword" },
-	{ name: "user.id", type: "keyword" },
-	{ name: "host.name", type: "keyword" },
-	{ name: "request.id", type: "keyword" },
-	{ name: "event.dataset", type: "keyword" },
-	{ name: "cloud.region", type: "keyword" },
+];
+const FILTER_OPERATORS = [
+	{ value: "is", label: "is" },
+	{ value: "isNot", label: "is not" },
+	{ value: "contains", label: "contains" },
+	{ value: "notContains", label: "does not contain" },
 ];
 
-const MOCK_LOGS = [
-	{
-		id: "log-1",
-		timestamp: "May 12, 10:29:59.123",
-		level: "ERROR",
-		pod: "payment-service-api-7d4f6c7d89-lx2pm",
-		service: "payment-service",
-		message: "Failed to charge customer: timeout calling Billing API",
-		details: {
-			"@timestamp": "May 12, 2024 @ 10:29:59.123",
-			"log.level": "ERROR",
-			"service.name": "payment-service",
-			"kubernetes.namespace_name": "production",
-			"kubernetes.pod.name": "payment-service-api-7d4f6c7d89-lx2pm",
-			"kubernetes.container.name": "payment",
-			"host.name": "ip-10-0-12-34",
-			"trace.id": "fb83e1c2b9a74d6dbf5e9c1a2b3d4e5f",
-			"request.id": "req_9f8e7d6c5b4a3c2d",
-			"http.request.method": "POST",
-			"url.path": "/api/v1/payments/charge",
-			"http.response.status_code": "504",
-			message: "Failed to charge customer: timeout calling Billing API",
-		},
-	},
-	{
-		id: "log-2",
-		timestamp: "May 12, 10:29:58.982",
-		level: "ERROR",
-		pod: "payment-service-worker-6b5dd7f5c8-9k2nt",
-		service: "payment-service",
-		message: "HTTP 503 from upstream service",
-		details: {
-			"@timestamp": "May 12, 2024 @ 10:29:58.982",
-			"log.level": "ERROR",
-			"service.name": "payment-service",
-			"kubernetes.namespace_name": "production",
-			"kubernetes.pod.name": "payment-service-worker-6b5dd7f5c8-9k2nt",
-			message: "HTTP 503 from upstream service",
-		},
-	},
-	{
-		id: "log-3",
-		timestamp: "May 12, 10:29:58.123",
-		level: "ERROR",
-		pod: "payment-service-web-5f6b8c9c7d-m7nq2",
-		service: "payment-service",
-		message: "Unhandled exception in payment processing",
-		details: {
-			"@timestamp": "May 12, 2024 @ 10:29:58.123",
-			"log.level": "ERROR",
-			message: "Unhandled exception in payment processing",
-		},
-	},
-	{
-		id: "log-4",
-		timestamp: "May 12, 10:29:57.982",
-		level: "ERROR",
-		pod: "payment-service-api-7d4f6c7d89-lx2pm",
-		service: "payment-service",
-		message: "Database connection failed",
-		details: {
-			message: "Database connection failed",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-5",
-		timestamp: "May 12, 10:29:56.456",
-		level: "ERROR",
-		pod: "payment-service-web-5f6b8c9c7d-m7nq2",
-		service: "payment-service",
-		message: "Payment gateway error: code=504",
-		details: {
-			message: "Payment gateway error: code=504",
-			"http.response.status_code": "504",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-6",
-		timestamp: "May 12, 10:29:54.123",
-		level: "ERROR",
-		pod: "payment-service-worker-6b5dd7f5c8-9k2nt",
-		service: "payment-service",
-		message: "Failed to process refund",
-		details: {
-			message: "Failed to process refund",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-7",
-		timestamp: "May 12, 10:29:53.765",
-		level: "ERROR",
-		pod: "payment-service-api-7d4f6c7d89-lx2pm",
-		service: "payment-service",
-		message: "Timeout while connecting to billing service",
-		details: {
-			message: "Timeout while connecting to billing service",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-8",
-		timestamp: "May 12, 10:29:52.321",
-		level: "ERROR",
-		pod: "payment-service-worker-6b5dd7f5c8-9k2nt",
-		service: "payment-service",
-		message: "Upstream service returned 502",
-		details: {
-			message: "Upstream service returned 502",
-			"http.response.status_code": "502",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-9",
-		timestamp: "May 12, 10:29:51.987",
-		level: "ERROR",
-		pod: "payment-service-api-7d4f6c7d89-lx2pm",
-		service: "payment-service",
-		message: "Failed to charge customer: invalid response",
-		details: {
-			message: "Failed to charge customer: invalid response",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-10",
-		timestamp: "May 12, 10:29:51.234",
-		level: "ERROR",
-		pod: "payment-service-web-5f6b8c9c7d-m7nq2",
-		service: "payment-service",
-		message: "Payment processing failed",
-		details: {
-			message: "Payment processing failed",
-			"log.level": "ERROR",
-		},
-	},
-	{
-		id: "log-11",
-		timestamp: "May 12, 10:29:50.500",
-		level: "WARN",
-		pod: "payment-service-api-7d4f6c7d89-lx2pm",
-		service: "payment-service",
-		message: "Retrying billing request after timeout",
-		details: {
-			message: "Retrying billing request after timeout",
-			"log.level": "WARN",
-		},
-	},
-	{
-		id: "log-12",
-		timestamp: "May 12, 10:29:49.100",
-		level: "INFO",
-		pod: "payment-service-worker-6b5dd7f5c8-9k2nt",
-		service: "payment-service",
-		message: "Received payment request",
-		details: {
-			message: "Received payment request",
-			"log.level": "INFO",
-		},
-	},
-	{
-		id: "log-13",
-		timestamp: "May 12, 10:29:48.100",
-		level: "DEBUG",
-		pod: "payment-service-web-5f6b8c9c7d-m7nq2",
-		service: "payment-service",
-		message: "Rendering payment confirmation component",
-		details: {
-			message: "Rendering payment confirmation component",
-			"log.level": "DEBUG",
-		},
-	},
-];
+function formatLastRefreshedAt(lastRefreshedAt) {
+	if (!lastRefreshedAt) {
+		return "Not refreshed yet";
+	}
+
+	return new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false,
+	}).format(lastRefreshedAt);
+}
 
 function getLevelBadgeClass(level) {
 	return (
@@ -254,21 +96,9 @@ function getLevelBadgeClass(level) {
 	);
 }
 
-function matchesQuery(log, query) {
-	const normalized = query.trim().toLowerCase();
-	if (!normalized) {
-		return true;
-	}
-
-	return [log.timestamp, log.level, log.pod, log.service, log.message]
-		.join(" ")
-		.toLowerCase()
-		.includes(normalized.replaceAll('"', ""));
-}
-
 function ControlLabel({ children }) {
 	return (
-		<span className="text-[11px] font-medium text-foreground/85">
+		<span className="text-[10px] font-medium text-foreground/80">
 			{children}
 		</span>
 	);
@@ -295,7 +125,7 @@ function DropdownControl({
 					<Button
 						variant="outline"
 						disabled={disabled}
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						className="h-8 w-full justify-between rounded-md border-border/70 bg-background/80 px-2.5 text-[0.8rem] font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
 							{Icon ? (
@@ -354,7 +184,7 @@ function DeploymentDropdown({
 					<Button
 						variant="outline"
 						disabled={isDisabled}
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						className="h-8 w-full justify-between rounded-md border-border/70 bg-background/80 px-2.5 text-[0.8rem] font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
 							<span className="truncate">{displayValue}</span>
@@ -429,7 +259,7 @@ function PodsDropdown({
 					<Button
 						variant="outline"
 						disabled={isDisabled}
-						className="h-10 w-full justify-between rounded-md border-border/70 bg-background/80 px-3 text-sm font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+						className="h-8 w-full justify-between rounded-md border-border/70 bg-background/80 px-2.5 text-[0.8rem] font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
 					>
 						<span className="truncate">{label}</span>
 						{isLoading ? (
@@ -497,38 +327,32 @@ function PodsDropdown({
 	);
 }
 
-function IconButton({ children, className, ...props }) {
-	return (
-		<Button
-			variant="outline"
-			size="icon-sm"
-			className={cn(
-				"border-border/70 bg-background/80 text-muted-foreground hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]",
-				className,
-			)}
-			{...props}
-		>
-			{children}
-		</Button>
-	);
+function escapeKqlValue(value) {
+	return String(value).replaceAll('"', '\\"');
 }
 
-function FieldRow({ field, onAdd }) {
-	return (
-		<button
-			type="button"
-			onClick={() => onAdd(field.name)}
-			className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm text-foreground/90 hover:bg-muted/60 dark:hover:bg-white/5"
-		>
-			<div className="flex min-w-0 items-center gap-2">
-				<SquareChevronRight className="size-4 shrink-0 text-sky-400" />
-				<span className="truncate">{field.name}</span>
-			</div>
-			<span className="shrink-0 text-xs text-muted-foreground">
-				{field.type}
-			</span>
-		</button>
-	);
+function buildKqlFilterExpression(field, operator, value) {
+	const normalizedValue = value.trim();
+
+	if (!normalizedValue) {
+		return "";
+	}
+
+	const escapedValue = escapeKqlValue(normalizedValue);
+
+	if (operator === "is") {
+		return `${field}:"${escapedValue}"`;
+	}
+
+	if (operator === "isNot") {
+		return `NOT ${field}:"${escapedValue}"`;
+	}
+
+	if (operator === "notContains") {
+		return `NOT ${field}:*${escapedValue}*`;
+	}
+
+	return `${field}:*${escapedValue}*`;
 }
 
 function DetailsTabButton({ active, children, onClick }) {
@@ -548,14 +372,25 @@ function DetailsTabButton({ active, children, onClick }) {
 	);
 }
 
-function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
+function LogDetailsPanel({
+	log,
+	selectedDetailTab,
+	onSelectTab,
+	onClose,
+	className,
+}) {
 	const detailEntries = Object.entries(log.details);
 
 	return (
-		<aside className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/70 bg-card/90 dark:border-white/8 dark:bg-[#0b1622]">
-			<div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3 dark:border-white/8">
+		<aside
+			className={cn(
+				"flex min-h-0 flex-1 flex-col rounded-xl border border-border/70 bg-card/90 dark:border-white/8 dark:bg-[#0b1622]",
+				className,
+			)}
+		>
+			<div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2 dark:border-white/8">
 				<div className="min-w-0">
-					<h3 className="truncate text-[1.65rem] font-medium tracking-tight">
+					<h3 className="truncate text-lg font-medium tracking-tight">
 						{log.timestamp}
 					</h3>
 				</div>
@@ -590,7 +425,7 @@ function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
 				</div>
 			</div>
 
-			<div className="flex items-center gap-6 border-b border-border/70 px-4 pt-2 dark:border-white/8">
+			<div className="flex items-center gap-4 border-b border-border/70 px-3 pt-1.5 dark:border-white/8">
 				{DETAIL_TABS.map((tab) => (
 					<DetailsTabButton
 						key={tab}
@@ -602,33 +437,37 @@ function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
 				))}
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-sm">
+			<div className="min-h-0 flex-1 overflow-auto px-3 py-2 text-xs">
 				{selectedDetailTab === "Document" ? (
-					<div className="space-y-4">
+					<div className="space-y-2">
 						{detailEntries.map(([label, value]) => (
 							<div
 								key={label}
-								className="grid gap-1 border-b border-border/50 pb-3 last:border-b-0 dark:border-white/6"
+								className="grid gap-0.5 border-b border-border/50 pb-1.5 last:border-b-0 dark:border-white/6"
 							>
-								<div className="text-muted-foreground">{label}</div>
-								<div className="break-words text-foreground/90">{value}</div>
+								<div className="text-[11px] leading-4 text-muted-foreground">
+									{label}
+								</div>
+								<div className="break-words text-[12px] leading-4 text-foreground/90">
+									{String(value)}
+								</div>
 							</div>
 						))}
 					</div>
 				) : null}
 
 				{selectedDetailTab === "JSON" ? (
-					<pre className="overflow-auto rounded-lg border border-border/70 bg-background/80 p-4 text-xs text-foreground/90 dark:border-white/8 dark:bg-[#091523]">
+					<pre className="overflow-auto rounded-lg border border-border/70 bg-background/80 p-3 text-[11px] leading-4 text-foreground/90 dark:border-white/8 dark:bg-[#091523]">
 						{JSON.stringify(log.details, null, 2)}
 					</pre>
 				) : null}
 
 				{selectedDetailTab === "Fields" ? (
-					<ul className="space-y-2">
+					<ul className="space-y-1.5">
 						{detailEntries.map(([label]) => (
 							<li
 								key={label}
-								className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 dark:border-white/8 dark:bg-white/[0.03]"
+								className="rounded-md border border-border/70 bg-muted/40 px-2.5 py-1.5 text-[11px] leading-4 dark:border-white/8 dark:bg-white/[0.03]"
 							>
 								{label}
 							</li>
@@ -637,17 +476,17 @@ function LogDetailsPanel({ log, selectedDetailTab, onSelectTab, onClose }) {
 				) : null}
 			</div>
 
-			<div className="flex items-center gap-3 border-t border-border/70 px-4 py-3 dark:border-white/8">
+			<div className="flex items-center gap-2 border-t border-border/70 px-3 py-2 dark:border-white/8">
 				<Button
 					variant="outline"
-					className="h-10 flex-1 rounded-md border-border/70 bg-transparent hover:bg-muted dark:border-white/10 dark:hover:bg-white/6"
+					className="h-8 flex-1 rounded-md border-border/70 bg-transparent text-xs hover:bg-muted dark:border-white/10 dark:hover:bg-white/6"
 				>
 					<Copy className="size-4" />
 					Copy
 				</Button>
 				<Button
 					variant="outline"
-					className="h-10 flex-1 rounded-md border-border/70 bg-transparent hover:bg-muted dark:border-white/10 dark:hover:bg-white/6"
+					className="h-8 flex-1 rounded-md border-border/70 bg-transparent text-xs hover:bg-muted dark:border-white/10 dark:hover:bg-white/6"
 				>
 					<FileJson2 className="size-4" />
 					View raw
@@ -692,19 +531,24 @@ export function LogViewerScreen({
 	const initialQuery =
 		'level:error AND service.name:"payment-service" AND http.response.status_code >= 500';
 	const [queryDraft, setQueryDraft] = useState(initialQuery);
-	const [appliedQuery, setAppliedQuery] = useState(initialQuery);
-	const [fieldSearch, setFieldSearch] = useState("");
+	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
+	const [filterDraftField, setFilterDraftField] = useState(FIELD_ROWS[0].name);
+	const [filterDraftOperator, setFilterDraftOperator] = useState(
+		FILTER_OPERATORS[0].value,
+	);
+	const [filterDraftValue, setFilterDraftValue] = useState("");
 	const [selectedTimeRange, setSelectedTimeRange] = useState(
 		MOCK_TIME_RANGES[0],
 	);
-	const [selectedColumnsPreset, setSelectedColumnsPreset] = useState(
-		MOCK_COLUMN_PRESETS[0],
-	);
-	const [rowsPerPage, setRowsPerPage] = useState(100);
 	const [selectedDetailTab, setSelectedDetailTab] = useState("Document");
-	const [isDetailsOpen, setIsDetailsOpen] = useState(true);
-	const [selectedLogId, setSelectedLogId] = useState(MOCK_LOGS[0].id);
-	const [isStreaming, setIsStreaming] = useState(false);
+	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+	const [selectedLogId, setSelectedLogId] = useState(null);
+	const [logs, setLogs] = useState([]);
+	const [isLogsLoading, setIsLogsLoading] = useState(false);
+	const [logsError, setLogsError] = useState("");
+	const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
+	const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
+	const [lastRefreshDurationMs, setLastRefreshDurationMs] = useState(null);
 	const [namespaces, setNamespaces] = useState([]);
 	const [isNamespacesLoading, setIsNamespacesLoading] = useState(false);
 	const [, setNamespacesError] = useState("");
@@ -719,9 +563,16 @@ export function LogViewerScreen({
 	const selectedNamespace = clusterViewerState.selectedNamespace;
 	const selectedDeployment = clusterViewerState.selectedDeployment;
 	const selectedPods = clusterViewerState.selectedPods;
-	const selectedLog =
-		MOCK_LOGS.find((entry) => entry.id === selectedLogId) || MOCK_LOGS[0];
+	const selectedLog = logs.find((entry) => entry.id === selectedLogId) || null;
 	const namespaceOptions = namespaces.map((namespace) => namespace.name);
+	const canSearch =
+		Boolean(clusterId) &&
+		Boolean(selectedNamespace) &&
+		Boolean(selectedDeployment) &&
+		selectedPods.length > 0 &&
+		!isLogsLoading;
+	const selectedSinceSeconds =
+		TIME_RANGE_TO_SINCE_SECONDS[selectedTimeRange] ?? null;
 
 	useEffect(() => {
 		if (!clusterId) {
@@ -947,25 +798,10 @@ export function LogViewerScreen({
 			});
 	};
 
-	const filteredFields = useMemo(() => {
-		const normalizedSearch = fieldSearch.trim().toLowerCase();
-		return FIELD_ROWS.filter((field) => {
-			if (!normalizedSearch) {
-				return true;
-			}
-			return `${field.name} ${field.type}`
-				.toLowerCase()
-				.includes(normalizedSearch);
-		});
-	}, [fieldSearch]);
-
-	const filteredLogs = useMemo(() => {
-		return MOCK_LOGS.filter((log) => selectedPods.includes(log.pod)).filter(
-			(log) => matchesQuery(log, appliedQuery),
-		);
-	}, [appliedQuery, selectedPods]);
-
-	const visibleLogs = filteredLogs.slice(0, rowsPerPage);
+	const visibleLogs = logs;
+	const activeSelectedLogId = selectedLog?.id ?? null;
+	const isDetailsVisible = isDetailsOpen && selectedLog;
+	const detailsPanelContainerRef = useRef(null);
 
 	const handleSelectDeployment = (value) => {
 		if (!clusterId) {
@@ -992,14 +828,76 @@ export function LogViewerScreen({
 		setSelectedNamespace(clusterId, value);
 	};
 
-	const handleApplyQuery = (nextQuery = queryDraft) => {
-		setAppliedQuery(nextQuery);
+	const handleRefresh = async () => {
+		if (!canSearch) {
+			return;
+		}
+
+		const startedAt = performance.now();
+		setIsLogsLoading(true);
+		setLogsError("");
+		setHasLoadedLogs(true);
+
+		try {
+			const podDatasets = await Promise.all(
+				selectedPods.map(async (podName) => {
+					const rawLogs = await fetchPodLogs(
+						fetch,
+						clusterId,
+						selectedNamespace,
+						podName,
+						apiBaseUrl,
+						selectedSinceSeconds === null
+							? {}
+							: { sinceSeconds: selectedSinceSeconds },
+					);
+
+					return parsePodLogsDataset(rawLogs, {
+						clusterId,
+						namespace: selectedNamespace,
+						deployment: selectedDeployment,
+						podName,
+					});
+				}),
+			);
+
+			const nextLogs = combinePodLogDatasets(podDatasets);
+			setLogs(nextLogs);
+			setSelectedLogId((currentSelectedLogId) =>
+				nextLogs.some((log) => log.id === currentSelectedLogId)
+					? currentSelectedLogId
+					: null,
+			);
+			setIsDetailsOpen(
+				nextLogs.some((log) => log.id === selectedLogId) && isDetailsOpen,
+			);
+			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
+		} catch (error) {
+			setLogsError(error.message || "Unable to load logs");
+			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
+		} finally {
+			setLastRefreshedAt(new Date());
+			setIsLogsLoading(false);
+		}
 	};
 
-	const appendToQuery = (token) => {
-		setQueryDraft(
-			(current) => `${current}${current.trim() ? " AND " : ""}${token}`,
+	const handleAddStructuredFilter = () => {
+		const nextExpression = buildKqlFilterExpression(
+			filterDraftField,
+			filterDraftOperator,
+			filterDraftValue,
 		);
+
+		if (!nextExpression) {
+			return;
+		}
+
+		setQueryDraft(
+			(currentQuery) =>
+				`${currentQuery}${currentQuery.trim() ? " AND " : ""}${nextExpression}`,
+		);
+		setFilterDraftValue("");
+		setIsFilterPopoverOpen(false);
 	};
 
 	const handleSelectLog = (logId) => {
@@ -1021,21 +919,18 @@ export function LogViewerScreen({
 	};
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(15,86,166,0.12),transparent_36rem)] text-foreground">
+		<div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(15,86,166,0.12),transparent_36rem)] text-foreground">
 			<section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/80 dark:border-white/8 dark:bg-[#08121d]">
-				<div className="grid gap-4 border-b border-border/70 px-4 py-4 dark:border-white/8 xl:grid-cols-[14rem_13rem_14rem_minmax(0,1fr)_10.5rem_auto] xl:items-end">
-					<div className="min-w-0 space-y-2">
-						<DropdownControl
-							label="Namespace"
-							value={selectedNamespace}
-							placeholder="Select namespace"
-							options={namespaceOptions}
-							disabled={!clusterId || namespaceOptions.length === 0}
-							isLoading={isNamespacesLoading}
-							onSelect={handleSelectNamespace}
-						/>
-						{null}
-					</div>
+				<div className="grid gap-1.5 border-b border-border/70 px-2.5 py-1.5 dark:border-white/8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_10rem] xl:items-end">
+					<DropdownControl
+						label="Namespace"
+						value={selectedNamespace}
+						placeholder="Select namespace"
+						options={namespaceOptions}
+						disabled={!clusterId || namespaceOptions.length === 0}
+						isLoading={isNamespacesLoading}
+						onSelect={handleSelectNamespace}
+					/>
 					<DeploymentDropdown
 						selectedDeployment={selectedDeployment}
 						deployments={deployments}
@@ -1061,181 +956,199 @@ export function LogViewerScreen({
 						onSelect={setSelectedTimeRange}
 						icon={CalendarDays}
 					/>
-					<div className="flex items-end">
-						<Button
-							className="h-10 w-full rounded-md px-4"
-							onClick={() => handleApplyQuery()}
-						>
-							<RefreshCw className="size-4" />
-							Refresh
-						</Button>
-					</div>
-					<div className="flex items-end gap-2">
-						<Button
-							variant="outline"
-							className="h-10 rounded-md border-border/70 bg-background/80 px-4 hover:bg-muted dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
-						>
-							<Save className="size-4" />
-							Save search
-						</Button>
-						<IconButton className="size-10 rounded-md">
-							<MoreHorizontal className="size-4" />
-						</IconButton>
-					</div>
 				</div>
 
-				<div className="grid min-h-0 flex-1 gap-3 p-3 xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,23rem)]">
-					<aside className="flex min-h-0 flex-col rounded-xl border border-border/70 bg-card/90 p-4 dark:border-white/8 dark:bg-[#0b1622]">
-						<div className="flex items-center justify-between gap-3">
-							<div className="flex items-center gap-2 text-[1.35rem] font-medium">
-								Fields
-								<Info className="size-4 text-muted-foreground" />
-							</div>
-							<IconButton>
-								<Settings2 className="size-4" />
-							</IconButton>
-						</div>
-
-						<div className="relative mt-4">
-							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								type="text"
-								value={fieldSearch}
-								onChange={(event) => setFieldSearch(event.target.value)}
-								placeholder="Search fields..."
-								className="h-10 w-full rounded-md border border-border/70 bg-background/80 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
-							/>
-						</div>
-
-						<div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">
-							{filteredFields.map((field) => (
-								<FieldRow
-									key={field.name}
-									field={field}
-									onAdd={appendToQuery}
-								/>
-							))}
-						</div>
-
-						<Button
-							variant="outline"
-							className="mt-4 h-10 justify-start rounded-md border-border/70 bg-transparent hover:bg-muted dark:border-white/10 dark:hover:bg-white/6"
-							onClick={() => appendToQuery("service.name")}
-						>
-							<Filter className="size-4" />
-							Add field filter
-						</Button>
-					</aside>
-
-					<div className="flex min-h-0 min-w-0 flex-col gap-3 xl:col-span-2">
-						<section className="shrink-0 rounded-xl border border-border/70 bg-card/90 p-5 dark:border-white/8 dark:bg-[#0b1622]">
-							<div className="relative">
+				<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2.5">
+					<section className="shrink-0 rounded-xl border border-border/70 bg-card/90 p-2.5 dark:border-white/8 dark:bg-[#0b1622]">
+						<div className="flex items-center gap-2">
+							<div className="min-w-0 flex-1">
 								<label htmlFor="log-query" className="sr-only">
 									Search logs
 								</label>
-								<textarea
-									id="log-query"
-									value={queryDraft}
-									onChange={(event) => setQueryDraft(event.target.value)}
-									onKeyDown={(event) => {
-										if (
-											(event.metaKey || event.ctrlKey) &&
-											event.key === "Enter"
-										) {
-											handleApplyQuery(event.currentTarget.value);
-										}
-									}}
-									placeholder="Search (KQL)"
-									rows={2}
-									className="min-h-20 w-full resize-y rounded-lg border border-primary/60 bg-background/80 px-4 py-3 pr-24 text-sm leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
-								/>
-								<div className="absolute right-3 top-3 flex items-center gap-2">
-									<button
-										type="button"
-										onClick={() => handleApplyQuery()}
-										className="inline-flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-										aria-label="Run search"
-									>
-										<Search className="size-4" />
-									</button>
-									<button
-										type="button"
-										onClick={() => setQueryDraft("")}
-										className="text-muted-foreground hover:text-foreground"
-										aria-label="Clear search"
-									>
-										<X className="size-4" />
-									</button>
-								</div>
-							</div>
-						</section>
-
-						<div
-							className={cn(
-								"grid min-h-0 min-w-0 flex-1 gap-3",
-								isDetailsOpen
-									? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]"
-									: "grid-cols-1",
-							)}
-						>
-							<section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border/70 bg-card/90 dark:border-white/8 dark:bg-[#0b1622]">
-								<div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3 dark:border-white/8">
-									<h2 className="text-[1.7rem] font-medium tracking-tight">
-										12,345 results
-									</h2>
-									<div className="flex items-center gap-2">
-										<DropdownControl
-											label=""
-											value={selectedColumnsPreset}
-											options={MOCK_COLUMN_PRESETS}
-											onSelect={setSelectedColumnsPreset}
-											className="w-34 space-y-0"
-										/>
-										<IconButton>
-											<Columns3 className="size-4" />
-										</IconButton>
-										<IconButton
-											onClick={() => setIsStreaming((current) => !current)}
+								<div className="relative">
+									<input
+										id="log-query"
+										type="text"
+										value={queryDraft}
+										onChange={(event) => setQueryDraft(event.target.value)}
+										placeholder="Search logs (KQL)"
+										className="h-10 w-full rounded-lg border border-primary/60 bg-background/80 pl-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
+									/>
+									<div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+										<button
+											type="button"
+											onClick={() => setQueryDraft("")}
+											className="text-muted-foreground hover:text-foreground"
+											aria-label="Clear search"
 										>
-											{isStreaming ? (
-												<Pause className="size-4" />
-											) : (
-												<Play className="size-4" />
-											)}
-										</IconButton>
+											<X className="size-4" />
+										</button>
 									</div>
 								</div>
+							</div>
+							<div className="relative shrink-0">
+								<Button
+									variant="ghost"
+									className="h-8 px-2 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+									onClick={() => setIsFilterPopoverOpen((current) => !current)}
+								>
+									+ Add Filter
+								</Button>
+								{isFilterPopoverOpen ? (
+									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
+										<div className="grid gap-2">
+											<DropdownControl
+												label="Field"
+												value={filterDraftField}
+												options={FIELD_ROWS.map((field) => field.name)}
+												onSelect={setFilterDraftField}
+												className="space-y-1"
+											/>
+											<DropdownControl
+												label="Operator"
+												value={
+													FILTER_OPERATORS.find(
+														(operator) =>
+															operator.value === filterDraftOperator,
+													)?.label
+												}
+												options={FILTER_OPERATORS.map(
+													(operator) => operator.label,
+												)}
+												onSelect={(nextLabel) => {
+													const nextOperator = FILTER_OPERATORS.find(
+														(operator) => operator.label === nextLabel,
+													);
+													if (nextOperator) {
+														setFilterDraftOperator(nextOperator.value);
+													}
+												}}
+												className="space-y-1"
+											/>
+											<div className="space-y-1">
+												<ControlLabel>Value</ControlLabel>
+												<input
+													type="text"
+													value={filterDraftValue}
+													onChange={(event) =>
+														setFilterDraftValue(event.target.value)
+													}
+													placeholder="Enter value"
+													className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+												/>
+											</div>
+											<div className="flex justify-end gap-2 pt-1">
+												<Button
+													variant="ghost"
+													className="h-8 px-2 text-xs"
+													onClick={() => setIsFilterPopoverOpen(false)}
+												>
+													Cancel
+												</Button>
+												<Button
+													className="h-8 px-3 text-xs"
+													disabled={!filterDraftValue.trim()}
+													onClick={handleAddStructuredFilter}
+												>
+													Apply
+												</Button>
+											</div>
+										</div>
+									</div>
+								) : null}
+							</div>
+							<Button
+								className="h-8 shrink-0 rounded-md px-3"
+								disabled={!canSearch}
+								onClick={() => {
+									void handleRefresh();
+								}}
+							>
+								<Search
+									className={cn("size-4", isLogsLoading ? "animate-spin" : "")}
+								/>
+								Search
+							</Button>
+						</div>
+					</section>
 
-								<div className="min-h-0 overflow-auto">
-									<table className="min-w-full border-separate border-spacing-0 text-sm">
-										<thead className="sticky top-0 bg-card/95 dark:bg-[#0b1622]">
-											<tr className="text-left text-xs uppercase tracking-[0.02em] text-muted-foreground">
-												<th className="border-b border-white/8 px-3 py-3" />
-												<th className="border-b border-white/8 px-3 py-3 font-medium">
-													@timestamp
-												</th>
-												<th className="border-b border-white/8 px-3 py-3 font-medium">
-													log.level
-												</th>
-												<th className="border-b border-white/8 px-3 py-3 font-medium">
-													kubernetes.pod.name
-												</th>
-												<th className="border-b border-white/8 px-3 py-3 font-medium">
-													service.name
-												</th>
-												<th className="border-b border-white/8 px-3 py-3 font-medium">
-													message
-												</th>
+					<div
+						className={cn(
+							"grid min-h-0 min-w-0 flex-1 gap-2 overflow-hidden",
+							isDetailsVisible
+								? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_23rem]"
+								: "grid-cols-1",
+						)}
+					>
+						<section
+							className={cn(
+								"min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border/70 bg-card/90 dark:border-white/8 dark:bg-[#0b1622]",
+								isDetailsVisible ? "hidden xl:flex" : "flex",
+							)}
+						>
+							<div className="min-h-0 overflow-auto">
+								<table className="min-w-full border-separate border-spacing-0 text-sm">
+									<thead className="sticky top-0 bg-card/95 dark:bg-[#0b1622]">
+										<tr className="text-left text-xs uppercase tracking-[0.02em] text-muted-foreground">
+											<th className="border-b border-white/8 px-3 py-3" />
+											<th className="border-b border-white/8 px-3 py-3 font-medium">
+												@timestamp
+											</th>
+											<th className="border-b border-white/8 px-3 py-3 font-medium">
+												log.level
+											</th>
+											<th className="border-b border-white/8 px-3 py-3 font-medium">
+												kubernetes.pod.name
+											</th>
+											<th className="border-b border-white/8 px-3 py-3 font-medium">
+												service.name
+											</th>
+											<th className="border-b border-white/8 px-3 py-3 font-medium">
+												message
+											</th>
+										</tr>
+									</thead>
+									<tbody>
+										{isLogsLoading ? (
+											<tr>
+												<td
+													colSpan={6}
+													className="px-3 py-10 text-center text-muted-foreground"
+												>
+													<div className="inline-flex items-center gap-2">
+														<Loader2 className="size-4 animate-spin" />
+														Loading logs snapshot...
+													</div>
+												</td>
 											</tr>
-										</thead>
-										<tbody>
-											{visibleLogs.map((log) => (
+										) : logsError ? (
+											<tr>
+												<td
+													colSpan={6}
+													className="px-3 py-10 text-center text-destructive"
+												>
+													{logsError}
+												</td>
+											</tr>
+										) : visibleLogs.length === 0 ? (
+											<tr>
+												<td
+													colSpan={6}
+													className="px-3 py-10 text-center text-muted-foreground"
+												>
+													{hasLoadedLogs
+														? "No logs found for the selected dataset scope"
+														: "Select cluster scope and click Search to load a log snapshot"}
+												</td>
+											</tr>
+										) : (
+											visibleLogs.map((log) => (
 												<tr
 													key={log.id}
 													onClick={() => handleSelectLog(log.id)}
 													className={cn(
 														"cursor-pointer text-foreground/90 hover:bg-muted/50 dark:hover:bg-white/[0.03]",
-														selectedLogId === log.id && isDetailsOpen
+														activeSelectedLogId === log.id && isDetailsOpen
 															? "bg-muted/60 dark:bg-white/[0.04]"
 															: "",
 													)}
@@ -1266,57 +1179,33 @@ export function LogViewerScreen({
 														{log.message}
 													</td>
 												</tr>
-											))}
-										</tbody>
-									</table>
-								</div>
+											))
+										)}
+									</tbody>
+								</table>
+							</div>
 
-								<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">
-									<DropdownControl
-										label=""
-										value={rowsPerPage}
-										options={MOCK_PAGE_SIZES}
-										onSelect={setRowsPerPage}
-										className="w-36 space-y-0"
-									/>
-									<div className="flex items-center gap-3 text-foreground">
-										<button
-											type="button"
-											className="text-muted-foreground hover:text-foreground"
-										>
-											<ChevronLeft className="size-4" />
-										</button>
-										<button
-											type="button"
-											className="rounded-md border border-primary/60 bg-primary/10 px-3 py-1 text-primary"
-										>
-											1
-										</button>
-										<button type="button">2</button>
-										<button type="button">3</button>
-										<button type="button">4</button>
-										<button type="button">5</button>
-										<span className="text-muted-foreground">…</span>
-										<button type="button">124</button>
-										<button
-											type="button"
-											className="text-muted-foreground hover:text-foreground"
-										>
-											<ChevronRight className="size-4" />
-										</button>
-									</div>
-								</div>
-							</section>
+							<div className="flex items-center justify-end px-4 py-2 text-xs text-muted-foreground">
+								{hasLoadedLogs
+									? `Loaded ${logs.length.toLocaleString()} logs`
+									: `Showing logs from ${selectedTimeRange.toLowerCase()}`}
+							</div>
+						</section>
 
-							{isDetailsOpen ? (
+						{isDetailsVisible ? (
+							<div
+								ref={detailsPanelContainerRef}
+								className="min-h-0 xl:sticky xl:top-0 xl:flex xl:h-full"
+							>
 								<LogDetailsPanel
 									log={selectedLog}
 									selectedDetailTab={selectedDetailTab}
 									onSelectTab={setSelectedDetailTab}
 									onClose={() => setIsDetailsOpen(false)}
+									className="xl:h-full"
 								/>
-							) : null}
-						</div>
+							</div>
+						) : null}
 					</div>
 				</div>
 
@@ -1334,25 +1223,19 @@ export function LogViewerScreen({
 									isConnected ? "bg-emerald-400" : "bg-muted-foreground",
 								)}
 							/>
-							Last updated: 10:30:00
+							Last updated: {formatLastRefreshedAt(lastRefreshedAt)}
 						</span>
 					</div>
 
 					<div className="flex items-center gap-6">
-						<span>Showing: {filteredLogs.length} / 12,345 logs</span>
-						<span>Scan completed in 1.2s</span>
-						<button
-							type="button"
-							onClick={() => setIsStreaming((current) => !current)}
-							className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300"
-						>
-							{isStreaming ? (
-								<Pause className="size-4" />
-							) : (
-								<Play className="size-4" />
-							)}
-							{isStreaming ? "Pause stream" : "Start stream"}
-						</button>
+						<span>
+							Showing: {visibleLogs.length} / {logs.length} logs
+						</span>
+						<span>
+							{lastRefreshDurationMs === null
+								? "Snapshot not loaded yet"
+								: `Snapshot loaded in ${lastRefreshDurationMs}ms`}
+						</span>
 					</div>
 				</footer>
 			</section>

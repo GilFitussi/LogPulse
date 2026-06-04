@@ -4,12 +4,14 @@ export function AppShell({ children, className }) {
 	return (
 		<div
 			className={cn(
-				"min-h-dvh overflow-x-hidden bg-background text-foreground",
+				"h-dvh overflow-hidden bg-background text-foreground",
 				"bg-[radial-gradient(circle_at_top_left,var(--surface-glow),transparent_32rem)]",
 				className,
 			)}
 		>
-			<div className="flex min-h-dvh flex-col">{children}</div>
+			<div className="flex h-dvh min-h-0 flex-col overflow-hidden">
+				{children}
+			</div>
 		</div>
 	);
 }
@@ -18,7 +20,7 @@ export function PageContainer({ children, className }) {
 	return (
 		<div
 			className={cn(
-				"mx-auto flex w-full max-w-[96rem] flex-1 flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8",
+				"mx-auto flex min-h-0 w-full max-w-[96rem] flex-1 flex-col gap-3 overflow-hidden px-4 py-3 sm:px-6 lg:px-8",
 				className,
 			)}
 		>
