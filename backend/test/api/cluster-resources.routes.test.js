@@ -93,32 +93,51 @@ describe("cluster-scoped resource endpoints", () => {
 		expect(listClusterPodsForDeployment).toHaveBeenCalledWith(1, "apps", "api");
 	});
 
-	it("returns pod logs and forwards valid query options", async () => {
-		getClusterPodLogs.mockResolvedValue({ logs: "line 1\nline 2\n" });
+	it("returns batched pod logs and forwards valid query options", async () => {
+		getClusterPodLogs.mockResolvedValue({
+			logs: ["line 2", "line 1"],
+			count: 2,
+			limit: 500,
+			hasMore: true,
+			nextBeforeTimestamp: "2026-06-04T14:20:00.000Z",
+		});
 
 		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20api%20&tailLines=100&sinceSeconds=60",
+			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20api%20&limit=500&sinceSeconds=60&beforeTimestamp=2026-06-04T14:20:00.000Z",
 		);
 
 		expect(response.status).toBe(200);
-		expect(response.body).toEqual({ logs: "line 1\nline 2\n" });
+		expect(response.body).toEqual({
+			logs: ["line 2", "line 1"],
+			count: 2,
+			limit: 500,
+			hasMore: true,
+			nextBeforeTimestamp: "2026-06-04T14:20:00.000Z",
+		});
 		expect(getClusterPodLogs).toHaveBeenCalledWith(1, "apps", "api-123", {
 			container: "api",
-			tailLines: 100,
+			limit: 500,
 			sinceSeconds: 60,
+			beforeTimestamp: "2026-06-04T14:20:00.000Z",
 		});
 	});
 
 	it("omits container when it is empty after trim", async () => {
-		getClusterPodLogs.mockResolvedValue({ logs: "line 1\n" });
+		getClusterPodLogs.mockResolvedValue({
+			logs: ["line 1"],
+			count: 1,
+			limit: 10,
+			hasMore: false,
+			nextBeforeTimestamp: null,
+		});
 
 		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20%20%20&tailLines=10",
+			"/api/clusters/1/namespaces/apps/pods/api-123/logs?container=%20%20%20&limit=10",
 		);
 
 		expect(response.status).toBe(200);
 		expect(getClusterPodLogs).toHaveBeenCalledWith(1, "apps", "api-123", {
-			tailLines: 10,
+			limit: 10,
 		});
 	});
 
@@ -161,17 +180,18 @@ describe("cluster-scoped resource endpoints", () => {
 		});
 	});
 
-	it("rejects invalid pod log query numbers with 400", async () => {
+	it("rejects invalid pod log query values with 400", async () => {
 		const response = await request(app.callback()).get(
-			"/api/clusters/1/namespaces/apps/pods/api-123/logs?tailLines=0&sinceSeconds=nope",
+			"/api/clusters/1/namespaces/apps/pods/api-123/logs?limit=0&sinceSeconds=nope&beforeTimestamp=not-a-date",
 		);
 
 		expect(response.status).toBe(400);
 		expect(response.body).toEqual({
 			error: "Invalid pod log query",
 			details: {
-				tailLines: '"tailLines" must be a positive number',
+				limit: '"limit" must be a positive number',
 				sinceSeconds: '"sinceSeconds" must be a number',
+				beforeTimestamp: '"beforeTimestamp" must be in iso format',
 			},
 		});
 		expect(getClusterPodLogs).not.toHaveBeenCalled();

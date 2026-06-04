@@ -303,7 +303,10 @@ describe("cluster resources service", () => {
 		});
 	});
 
-	it("retrieves plain text pod logs with optional log query parameters", async () => {
+	it("retrieves pod logs in newest-first batches within the selected time range", async () => {
+		jest
+			.spyOn(Date, "now")
+			.mockReturnValue(Date.parse("2026-06-04T15:00:00.000Z"));
 		const coreClient = {
 			readNamespacedPod: jest.fn().mockResolvedValue({
 				body: {
@@ -316,8 +319,15 @@ describe("cluster resources service", () => {
 				expect(namespace).toBe("apps");
 				expect(podName).toBe("api-123");
 				expect(containerName).toBe("api");
-				stream.write("line 1\n");
-				stream.end("line 2\n");
+				stream.end(
+					[
+						"2026-06-04T13:50:00.000000000Z outside range",
+						"2026-06-04T14:05:00.000000000Z oldest kept",
+						"2026-06-04T14:10:00.000000000Z older kept",
+						"2026-06-04T14:20:00.000000000Z newer kept",
+						"2026-06-04T14:30:00.000000000Z newest kept",
+					].join("\n") + "\n",
+				);
 			}),
 		};
 		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
@@ -330,11 +340,18 @@ describe("cluster resources service", () => {
 
 		await expect(
 			getClusterPodLogs(1, "apps", "api-123", {
-				tailLines: 100,
-				sinceSeconds: 60,
+				limit: 2,
+				sinceSeconds: 3600,
 			}),
 		).resolves.toEqual({
-			logs: "line 1\nline 2\n",
+			logs: [
+				"2026-06-04T14:30:00.000000000Z newest kept",
+				"2026-06-04T14:20:00.000000000Z newer kept",
+			],
+			count: 2,
+			limit: 2,
+			hasMore: true,
+			nextBeforeTimestamp: "2026-06-04T14:20:00.000Z",
 		});
 		expect(coreClient.readNamespacedPod).toHaveBeenCalledWith({
 			name: "api-123",
@@ -346,10 +363,72 @@ describe("cluster resources service", () => {
 			"api",
 			expect.any(Object),
 			{
-				tailLines: 100,
-				sinceSeconds: 60,
+				sinceSeconds: 3600,
+				timestamps: true,
 			},
 		);
+		Date.now.mockRestore();
+	});
+
+	it("loads the next batch of older logs before the requested timestamp", async () => {
+		jest
+			.spyOn(Date, "now")
+			.mockReturnValue(Date.parse("2026-06-04T15:00:00.000Z"));
+		const coreClient = {
+			readNamespacedPod: jest.fn().mockResolvedValue({
+				body: {
+					spec: { containers: [{ name: "api" }] },
+				},
+			}),
+		};
+		const logClient = {
+			log: jest.fn(async (namespace, podName, containerName, stream) => {
+				stream.end(
+					[
+						"2026-06-04T14:05:00.000000000Z oldest kept",
+						"2026-06-04T14:10:00.000000000Z older kept",
+						"2026-06-04T14:20:00.000000000Z already loaded boundary",
+						"2026-06-04T14:30:00.000000000Z newer than boundary",
+					].join("\n") + "\n",
+				);
+			}),
+		};
+		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
+		mockGetClusterSession.mockReturnValue({
+			clusterId: 1,
+			kubeconfigContent: "cluster-1-config",
+		});
+		mockGetCoreV1Api.mockReturnValue(coreClient);
+		mockGetLogClient.mockReturnValue(logClient);
+
+		await expect(
+			getClusterPodLogs(1, "apps", "api-123", {
+				limit: 2,
+				sinceSeconds: 3600,
+				beforeTimestamp: "2026-06-04T14:20:00.000Z",
+			}),
+		).resolves.toEqual({
+			logs: [
+				"2026-06-04T14:10:00.000000000Z older kept",
+				"2026-06-04T14:05:00.000000000Z oldest kept",
+			],
+			count: 2,
+			limit: 2,
+			hasMore: false,
+			nextBeforeTimestamp: null,
+		});
+		expect(logClient.log).toHaveBeenCalledWith(
+			"apps",
+			"api-123",
+			"api",
+			expect.any(Object),
+			{
+				sinceSeconds: 3600,
+				untilTime: "2026-06-04T14:20:00.000Z",
+				timestamps: true,
+			},
+		);
+		Date.now.mockRestore();
 	});
 
 	it("keeps runtime sessions isolated across multiple clusters", async () => {

@@ -299,6 +299,135 @@ function createLogCaptureStream(chunks) {
 	});
 }
 
+function normalizeLogTimestamp(rawTimestamp) {
+	if (typeof rawTimestamp !== "string" || !rawTimestamp.trim()) {
+		return null;
+	}
+
+	let normalizedTimestamp = rawTimestamp.trim().replace(/,(\d+)/, ".$1");
+
+	normalizedTimestamp = normalizedTimestamp.replace(
+		/(\.\d{3})\d+(Z|[+-]\d{2}:?\d{2})$/,
+		"$1$2",
+	);
+	normalizedTimestamp = normalizedTimestamp.replace(/(\.\d{3})\d+$/, "$1");
+
+	const isoWithoutTimezoneMatch = normalizedTimestamp.match(
+		/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/,
+	);
+
+	if (isoWithoutTimezoneMatch) {
+		return `${isoWithoutTimezoneMatch[1]}T${isoWithoutTimezoneMatch[2]}Z`;
+	}
+
+	return normalizedTimestamp.replace(
+		/^(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/,
+		"$1T$2",
+	);
+}
+
+function parseLogTimestamp(rawTimestamp) {
+	const normalizedTimestamp = normalizeLogTimestamp(rawTimestamp);
+
+	if (!normalizedTimestamp) {
+		return null;
+	}
+
+	const parsedTimestamp = Date.parse(normalizedTimestamp);
+	return Number.isNaN(parsedTimestamp) ? null : parsedTimestamp;
+}
+
+function extractLogTimestamp(rawLine) {
+	const normalizedLine = String(rawLine || "").trim();
+	const prefixMatch = normalizedLine.match(/^(\S+)\s/);
+
+	if (prefixMatch) {
+		const prefixedTimestamp = parseLogTimestamp(prefixMatch[1]);
+
+		if (prefixedTimestamp !== null) {
+			return prefixMatch[1];
+		}
+	}
+
+	const embeddedMatch = normalizedLine.match(
+		/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/,
+	);
+
+	return embeddedMatch?.[0] || null;
+}
+
+function parseLogEntries(rawLogs) {
+	return String(rawLogs || "")
+		.split(/\r?\n/)
+		.map((line) => line.replace(/\r/g, ""))
+		.filter((line) => line.trim())
+		.map((line, index) => {
+			const rawTimestamp = extractLogTimestamp(line);
+			const parsedTimestamp = parseLogTimestamp(rawTimestamp);
+
+			return {
+				line,
+				rawTimestamp,
+				parsedTimestamp,
+				index,
+			};
+		})
+		.filter((entry) => entry.parsedTimestamp !== null);
+}
+
+function buildLogWindowStartTimestamp(sinceSeconds) {
+	if (typeof sinceSeconds !== "number") {
+		return null;
+	}
+
+	return Date.now() - sinceSeconds * 1000;
+}
+
+function buildPodLogBatch(entries, limit, beforeTimestamp, sinceSeconds) {
+	const beforeBoundaryTimestamp = parseLogTimestamp(beforeTimestamp);
+	const searchWindowStartTimestamp = buildLogWindowStartTimestamp(sinceSeconds);
+	const filteredEntries = entries
+		.filter((entry) => {
+			if (
+				typeof searchWindowStartTimestamp === "number" &&
+				entry.parsedTimestamp < searchWindowStartTimestamp
+			) {
+				return false;
+			}
+
+			if (
+				typeof beforeBoundaryTimestamp === "number" &&
+				entry.parsedTimestamp >= beforeBoundaryTimestamp
+			) {
+				return false;
+			}
+
+			return true;
+		})
+		.sort((left, right) => {
+			if (right.parsedTimestamp !== left.parsedTimestamp) {
+				return right.parsedTimestamp - left.parsedTimestamp;
+			}
+
+			return right.index - left.index;
+		});
+	const selectedEntries = filteredEntries.slice(0, limit);
+	const hasMore = filteredEntries.length > limit;
+	const oldestReturnedEntry =
+		selectedEntries[selectedEntries.length - 1] || null;
+
+	return {
+		logs: selectedEntries.map((entry) => entry.line),
+		count: selectedEntries.length,
+		limit,
+		hasMore,
+		nextBeforeTimestamp:
+			hasMore && oldestReturnedEntry
+				? new Date(oldestReturnedEntry.parsedTimestamp).toISOString()
+				: null,
+	};
+}
+
 async function getClusterPodLogs(clusterId, namespace, podName, options = {}) {
 	await requireActiveClusterSession(clusterId);
 	const containerName = await resolveContainerName(
@@ -310,22 +439,28 @@ async function getClusterPodLogs(clusterId, namespace, podName, options = {}) {
 	const logClient = getLogClient(clusterId);
 	const chunks = [];
 	const stream = createLogCaptureStream(chunks);
-	const logOptions = {};
-
-	if (typeof options.tailLines === "number") {
-		logOptions.tailLines = options.tailLines;
-	}
+	const logOptions = {
+		timestamps: true,
+	};
+	const limit = typeof options.limit === "number" ? options.limit : 500;
 
 	if (typeof options.sinceSeconds === "number") {
 		logOptions.sinceSeconds = options.sinceSeconds;
 	}
 
+	if (options.beforeTimestamp) {
+		logOptions.untilTime = options.beforeTimestamp;
+	}
+
 	await logClient.log(namespace, podName, containerName, stream, logOptions);
 	await finished(stream);
 
-	return {
-		logs: Buffer.concat(chunks).toString("utf8"),
-	};
+	return buildPodLogBatch(
+		parseLogEntries(Buffer.concat(chunks).toString("utf8")),
+		limit,
+		options.beforeTimestamp,
+		options.sinceSeconds,
+	);
 }
 
 module.exports = {

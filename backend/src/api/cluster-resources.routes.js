@@ -37,8 +37,9 @@ const podLogsParamsSchema = Joi.object({
 
 const podLogsQuerySchema = Joi.object({
 	container: Joi.string().trim().empty("").optional(),
-	tailLines: Joi.number().integer().positive(),
 	sinceSeconds: Joi.number().integer().positive(),
+	limit: Joi.number().integer().positive().default(500),
+	beforeTimestamp: Joi.string().isoDate(),
 });
 
 router.use(async (ctx, next) => {
@@ -164,9 +165,7 @@ router.get("/namespaces/:namespace/pods/:podName/logs", async (ctx) => {
 		options,
 	);
 
-	ctx.body = {
-		logs: result.logs,
-	};
+	ctx.body = result;
 });
 
 function validateRequest(ctx, input, schema, errorMessage) {
