@@ -4,6 +4,7 @@ export function createDefaultClusterViewerState() {
 	return {
 		selectedNamespace: null,
 		selectedDeployment: null,
+		selectedPods: [],
 		selectedContainer: null,
 		openPodTabs: [],
 		activeTabId: null,
@@ -114,11 +115,18 @@ export const useViewerStore = create((set, get) => ({
 		return get().patchClusterState(clusterId, {
 			selectedNamespace: namespace,
 			selectedDeployment: null,
+			selectedPods: [],
 		});
 	},
 	setSelectedDeployment: (clusterId, deployment) => {
 		return get().patchClusterState(clusterId, {
 			selectedDeployment: deployment,
+			selectedPods: [],
+		});
+	},
+	setSelectedPods: (clusterId, selectedPods) => {
+		return get().patchClusterState(clusterId, {
+			selectedPods,
 		});
 	},
 	setSelectedContainer: (clusterId, container) => {
