@@ -299,80 +299,57 @@ function createLogCaptureStream(chunks) {
 	});
 }
 
-function normalizeLogTimestamp(rawTimestamp) {
-	if (typeof rawTimestamp !== "string" || !rawTimestamp.trim()) {
+function parseTimestampToken(value) {
+	if (typeof value !== "string" || !value.trim()) {
 		return null;
 	}
 
-	let normalizedTimestamp = rawTimestamp.trim().replace(/,(\d+)/, ".$1");
+	const parsedTimestamp = Date.parse(value.trim());
 
-	normalizedTimestamp = normalizedTimestamp.replace(
-		/(\.\d{3})\d+(Z|[+-]\d{2}:?\d{2})$/,
-		"$1$2",
-	);
-	normalizedTimestamp = normalizedTimestamp.replace(/(\.\d{3})\d+$/, "$1");
-
-	const isoWithoutTimezoneMatch = normalizedTimestamp.match(
-		/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/,
-	);
-
-	if (isoWithoutTimezoneMatch) {
-		return `${isoWithoutTimezoneMatch[1]}T${isoWithoutTimezoneMatch[2]}Z`;
-	}
-
-	return normalizedTimestamp.replace(
-		/^(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/,
-		"$1T$2",
-	);
-}
-
-function parseLogTimestamp(rawTimestamp) {
-	const normalizedTimestamp = normalizeLogTimestamp(rawTimestamp);
-
-	if (!normalizedTimestamp) {
+	if (Number.isNaN(parsedTimestamp)) {
 		return null;
 	}
 
-	const parsedTimestamp = Date.parse(normalizedTimestamp);
-	return Number.isNaN(parsedTimestamp) ? null : parsedTimestamp;
+	return {
+		rawTimestamp: value.trim(),
+		parsedTimestamp,
+		isoTimestamp: new Date(parsedTimestamp).toISOString(),
+	};
 }
 
-function extractLogTimestamp(rawLine) {
-	const normalizedLine = String(rawLine || "").trim();
-	const prefixMatch = normalizedLine.match(/^(\S+)\s/);
+function parseKubernetesLogLine(rawLine, index) {
+	const line = String(rawLine || "")
+		.replace(/\r/g, "")
+		.trim();
 
-	if (prefixMatch) {
-		const prefixedTimestamp = parseLogTimestamp(prefixMatch[1]);
-
-		if (prefixedTimestamp !== null) {
-			return prefixMatch[1];
-		}
+	if (!line) {
+		return null;
 	}
 
-	const embeddedMatch = normalizedLine.match(
-		/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/,
-	);
+	const firstSpaceIndex = line.indexOf(" ");
 
-	return embeddedMatch?.[0] || null;
+	if (firstSpaceIndex === -1) {
+		return null;
+	}
+
+	const timestamp = parseTimestampToken(line.slice(0, firstSpaceIndex));
+
+	if (!timestamp) {
+		return null;
+	}
+
+	return {
+		line,
+		index,
+		...timestamp,
+	};
 }
 
 function parseLogEntries(rawLogs) {
 	return String(rawLogs || "")
 		.split(/\r?\n/)
-		.map((line) => line.replace(/\r/g, ""))
-		.filter((line) => line.trim())
-		.map((line, index) => {
-			const rawTimestamp = extractLogTimestamp(line);
-			const parsedTimestamp = parseLogTimestamp(rawTimestamp);
-
-			return {
-				line,
-				rawTimestamp,
-				parsedTimestamp,
-				index,
-			};
-		})
-		.filter((entry) => entry.parsedTimestamp !== null);
+		.map((line, index) => parseKubernetesLogLine(line, index))
+		.filter(Boolean);
 }
 
 function buildLogWindowStartTimestamp(sinceSeconds) {
@@ -384,7 +361,8 @@ function buildLogWindowStartTimestamp(sinceSeconds) {
 }
 
 function buildPodLogBatch(entries, limit, beforeTimestamp, sinceSeconds) {
-	const beforeBoundaryTimestamp = parseLogTimestamp(beforeTimestamp);
+	const beforeBoundaryTimestamp =
+		parseTimestampToken(beforeTimestamp)?.parsedTimestamp;
 	const searchWindowStartTimestamp = buildLogWindowStartTimestamp(sinceSeconds);
 	const filteredEntries = entries
 		.filter((entry) => {
@@ -422,9 +400,7 @@ function buildPodLogBatch(entries, limit, beforeTimestamp, sinceSeconds) {
 		limit,
 		hasMore,
 		nextBeforeTimestamp:
-			hasMore && oldestReturnedEntry
-				? new Date(oldestReturnedEntry.parsedTimestamp).toISOString()
-				: null,
+			hasMore && oldestReturnedEntry ? oldestReturnedEntry.isoTimestamp : null,
 	};
 }
 
