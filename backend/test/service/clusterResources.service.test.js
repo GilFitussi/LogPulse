@@ -31,11 +31,13 @@ jest.mock("../../src/service/ocCommand.service", () => ({
 
 const {
 	CLUSTER_NOT_CONNECTED_MESSAGE,
-	getClusterPodLogs,
+	createPodLogSearch,
+	getPodLogSearchResults,
 	listClusterDeployments,
 	listClusterNamespaces,
 	listClusterPods,
 	listClusterPodsForDeployment,
+	resetPodLogSearchSessions,
 } = require("../../src/service/clusterResources.service");
 
 describe("cluster resources service", () => {
@@ -54,6 +56,7 @@ describe("cluster resources service", () => {
 		mockIsOcNotInstalledError.mockImplementation(
 			(error) => error?.code === "ENOENT",
 		);
+		resetPodLogSearchSessions();
 	});
 
 	it("throws a cluster not found error for invalid cluster ids", async () => {
@@ -303,22 +306,43 @@ describe("cluster resources service", () => {
 		});
 	});
 
-	it("retrieves plain text pod logs with optional log query parameters", async () => {
+	it("creates one combined log search session for multiple pods and returns the first batch", async () => {
+		jest
+			.spyOn(Date, "now")
+			.mockReturnValue(Date.parse("2026-06-04T15:00:00.000Z"));
 		const coreClient = {
-			readNamespacedPod: jest.fn().mockResolvedValue({
-				body: {
-					spec: { containers: [{ name: "api" }] },
-				},
-			}),
+			readNamespacedPod: jest
+				.fn()
+				.mockResolvedValueOnce({
+					body: { spec: { containers: [{ name: "api" }] } },
+				})
+				.mockResolvedValueOnce({
+					body: { spec: { containers: [{ name: "worker" }] } },
+				}),
 		};
 		const logClient = {
-			log: jest.fn(async (namespace, podName, containerName, stream) => {
-				expect(namespace).toBe("apps");
-				expect(podName).toBe("api-123");
-				expect(containerName).toBe("api");
-				stream.write("line 1\n");
-				stream.end("line 2\n");
-			}),
+			log: jest
+				.fn()
+				.mockImplementationOnce(
+					async (_namespace, _podName, _containerName, stream) => {
+						stream.end(
+							[
+								"2026-06-04T14:59:00.000Z api info ready",
+								"2026-06-04T14:57:00.000Z api warn slow",
+							].join("\n") + "\n",
+						);
+					},
+				)
+				.mockImplementationOnce(
+					async (_namespace, _podName, _containerName, stream) => {
+						stream.end(
+							[
+								'2026-06-04T14:58:30.000Z {"level":"error","message":"worker failed"}',
+								"2026-06-04T14:56:00.000Z worker recovered",
+							].join("\n") + "\n",
+						);
+					},
+				),
 		};
 		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
 		mockGetClusterSession.mockReturnValue({
@@ -328,28 +352,151 @@ describe("cluster resources service", () => {
 		mockGetCoreV1Api.mockReturnValue(coreClient);
 		mockGetLogClient.mockReturnValue(logClient);
 
-		await expect(
-			getClusterPodLogs(1, "apps", "api-123", {
-				tailLines: 100,
-				sinceSeconds: 60,
-			}),
-		).resolves.toEqual({
-			logs: "line 1\nline 2\n",
+		const result = await createPodLogSearch(1, "apps", {
+			podNames: ["api-123", "worker-456"],
+			sinceSeconds: 900,
+			limit: 2,
 		});
-		expect(coreClient.readNamespacedPod).toHaveBeenCalledWith({
-			name: "api-123",
+
+		expect(result).toMatchObject({
+			searchSessionId: expect.any(String),
 			namespace: "apps",
+			podNames: ["api-123", "worker-456"],
+			windowStartTimestamp: "2026-06-04T14:45:00.000Z",
+			windowEndTimestamp: "2026-06-04T15:00:00.000Z",
+			count: 2,
+			limit: 2,
+			offset: 0,
+			totalCount: 4,
+			hasMore: true,
+			nextOffset: 2,
+			logs: [
+				{
+					podName: "api-123",
+					namespace: "apps",
+					timestamp: "2026-06-04T14:59:00.000Z",
+					level: "INFO",
+					message: "api info ready",
+				},
+				{
+					podName: "worker-456",
+					namespace: "apps",
+					timestamp: "2026-06-04T14:58:30.000Z",
+					level: "ERROR",
+					message: "worker failed",
+				},
+			],
 		});
-		expect(logClient.log).toHaveBeenCalledWith(
+		expect(logClient.log).toHaveBeenNthCalledWith(
+			1,
 			"apps",
 			"api-123",
 			"api",
 			expect.any(Object),
 			{
-				tailLines: 100,
-				sinceSeconds: 60,
+				timestamps: true,
+				sinceTime: "2026-06-04T14:45:00.000Z",
+				untilTime: "2026-06-04T15:00:00.000Z",
 			},
 		);
+		expect(logClient.log).toHaveBeenNthCalledWith(
+			2,
+			"apps",
+			"worker-456",
+			"worker",
+			expect.any(Object),
+			{
+				timestamps: true,
+				sinceTime: "2026-06-04T14:45:00.000Z",
+				untilTime: "2026-06-04T15:00:00.000Z",
+			},
+		);
+		Date.now.mockRestore();
+	});
+
+	it("returns older results from the cached combined session without refetching pod logs", async () => {
+		jest
+			.spyOn(Date, "now")
+			.mockReturnValue(Date.parse("2026-06-04T15:00:00.000Z"));
+		const coreClient = {
+			readNamespacedPod: jest
+				.fn()
+				.mockResolvedValueOnce({
+					body: { spec: { containers: [{ name: "api" }] } },
+				})
+				.mockResolvedValueOnce({
+					body: { spec: { containers: [{ name: "worker" }] } },
+				}),
+		};
+		const logClient = {
+			log: jest
+				.fn()
+				.mockImplementationOnce(
+					async (_namespace, _podName, _containerName, stream) => {
+						stream.end(
+							[
+								"2026-06-04T14:59:00.000Z api info ready",
+								"2026-06-04T14:57:00.000Z api warn slow",
+							].join("\n") + "\n",
+						);
+					},
+				)
+				.mockImplementationOnce(
+					async (_namespace, _podName, _containerName, stream) => {
+						stream.end(
+							[
+								"2026-06-04T14:58:30.000Z worker failed",
+								"2026-06-04T14:56:00.000Z worker recovered",
+							].join("\n") + "\n",
+						);
+					},
+				),
+		};
+		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
+		mockGetClusterSession.mockReturnValue({
+			clusterId: 1,
+			kubeconfigContent: "cluster-1-config",
+		});
+		mockGetCoreV1Api.mockReturnValue(coreClient);
+		mockGetLogClient.mockReturnValue(logClient);
+
+		const initial = await createPodLogSearch(1, "apps", {
+			podNames: ["api-123", "worker-456"],
+			sinceSeconds: 900,
+			limit: 2,
+		});
+		const callsAfterSearch = logClient.log.mock.calls.length;
+
+		const nextBatch = await getPodLogSearchResults(1, initial.searchSessionId, {
+			offset: 2,
+			limit: 2,
+		});
+
+		expect(logClient.log).toHaveBeenCalledTimes(callsAfterSearch);
+		expect(nextBatch).toMatchObject({
+			searchSessionId: initial.searchSessionId,
+			count: 2,
+			limit: 2,
+			offset: 2,
+			totalCount: 4,
+			hasMore: false,
+			nextOffset: null,
+			logs: [
+				{
+					podName: "api-123",
+					timestamp: "2026-06-04T14:57:00.000Z",
+					level: "WARN",
+					message: "api warn slow",
+				},
+				{
+					podName: "worker-456",
+					timestamp: "2026-06-04T14:56:00.000Z",
+					level: null,
+					message: "worker recovered",
+				},
+			],
+		});
+		Date.now.mockRestore();
 	});
 
 	it("keeps runtime sessions isolated across multiple clusters", async () => {

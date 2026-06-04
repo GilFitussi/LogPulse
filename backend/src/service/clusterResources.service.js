@@ -1,3 +1,4 @@
+const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -299,40 +300,263 @@ function createLogCaptureStream(chunks) {
 	});
 }
 
-async function getClusterPodLogs(clusterId, namespace, podName, options = {}) {
-	await requireActiveClusterSession(clusterId);
+const LOG_SEARCH_SESSION_TTL_MS = 15 * 60 * 1000;
+const podLogSearchSessions = new Map();
+
+function parseTimestampToken(value) {
+	if (typeof value !== "string" || !value.trim()) {
+		return null;
+	}
+
+	const parsedTimestamp = Date.parse(value.trim());
+
+	if (Number.isNaN(parsedTimestamp)) {
+		return null;
+	}
+
+	return {
+		rawTimestamp: value.trim(),
+		parsedTimestamp,
+		isoTimestamp: new Date(parsedTimestamp).toISOString(),
+	};
+}
+
+function detectLogLevel(message) {
+	const match = String(message || "").match(
+		/\b(error|warn|warning|info|debug|trace|fatal)\b/i,
+	);
+
+	if (!match) {
+		return null;
+	}
+
+	const normalizedLevel = match[1].toUpperCase();
+	return normalizedLevel === "WARNING" ? "WARN" : normalizedLevel;
+}
+
+function tryParseJsonLogMessage(message) {
+	try {
+		const parsed = JSON.parse(message);
+		return parsed && typeof parsed === "object" ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
+function buildLogRecord(rawLine, index, metadata) {
+	const line = String(rawLine || "")
+		.replace(/\r/g, "")
+		.trim();
+
+	if (!line) {
+		return null;
+	}
+
+	const firstSpaceIndex = line.indexOf(" ");
+
+	if (firstSpaceIndex === -1) {
+		return null;
+	}
+
+	const timestamp = parseTimestampToken(line.slice(0, firstSpaceIndex));
+
+	if (!timestamp) {
+		return null;
+	}
+
+	const message = line.slice(firstSpaceIndex + 1);
+	const jsonMessage = tryParseJsonLogMessage(message);
+	const normalizedMessage =
+		typeof jsonMessage?.message === "string" && jsonMessage.message.trim()
+			? jsonMessage.message.trim()
+			: typeof jsonMessage?.msg === "string" && jsonMessage.msg.trim()
+				? jsonMessage.msg.trim()
+				: message;
+	const levelSource =
+		typeof jsonMessage?.level === "string"
+			? jsonMessage.level
+			: typeof jsonMessage?.severity === "string"
+				? jsonMessage.severity
+				: message;
+
+	return {
+		id: `${metadata.podName}:${timestamp.isoTimestamp}:${index}:${line}`,
+		namespace: metadata.namespace,
+		podName: metadata.podName,
+		timestamp: timestamp.isoTimestamp,
+		level: detectLogLevel(levelSource),
+		message: normalizedMessage,
+		rawLine: line,
+		parsedTimestamp: timestamp.parsedTimestamp,
+		order: index,
+	};
+}
+
+function parseLogEntries(rawLogs, metadata) {
+	return String(rawLogs || "")
+		.split(/\r?\n/)
+		.map((line, index) => buildLogRecord(line, index, metadata))
+		.filter(Boolean);
+}
+
+function buildLogWindow({ sinceSeconds, windowEndTimestamp }) {
+	const endTimestamp =
+		parseTimestampToken(windowEndTimestamp)?.parsedTimestamp ?? Date.now();
+	const startTimestamp = endTimestamp - sinceSeconds * 1000;
+
+	return {
+		windowStartTimestamp: new Date(startTimestamp).toISOString(),
+		windowEndTimestamp: new Date(endTimestamp).toISOString(),
+	};
+}
+
+async function fetchPodLogsForWindow(clusterId, namespace, podName, window) {
 	const containerName = await resolveContainerName(
 		clusterId,
 		namespace,
 		podName,
-		options.container,
 	);
 	const logClient = getLogClient(clusterId);
 	const chunks = [];
 	const stream = createLogCaptureStream(chunks);
-	const logOptions = {};
 
-	if (typeof options.tailLines === "number") {
-		logOptions.tailLines = options.tailLines;
-	}
-
-	if (typeof options.sinceSeconds === "number") {
-		logOptions.sinceSeconds = options.sinceSeconds;
-	}
-
-	await logClient.log(namespace, podName, containerName, stream, logOptions);
+	await logClient.log(namespace, podName, containerName, stream, {
+		timestamps: true,
+		sinceTime: window.windowStartTimestamp,
+		untilTime: window.windowEndTimestamp,
+	});
 	await finished(stream);
 
+	return parseLogEntries(Buffer.concat(chunks).toString("utf8"), {
+		namespace,
+		podName,
+	});
+}
+
+function sortCombinedLogRecords(logs) {
+	return [...logs].sort((left, right) => {
+		if (right.parsedTimestamp !== left.parsedTimestamp) {
+			return right.parsedTimestamp - left.parsedTimestamp;
+		}
+
+		if (left.podName !== right.podName) {
+			return left.podName.localeCompare(right.podName);
+		}
+
+		return right.order - left.order;
+	});
+}
+
+function cleanupExpiredPodLogSearchSessions() {
+	const expiresBefore = Date.now() - LOG_SEARCH_SESSION_TTL_MS;
+
+	for (const [searchSessionId, session] of podLogSearchSessions.entries()) {
+		if (session.createdAt < expiresBefore) {
+			podLogSearchSessions.delete(searchSessionId);
+		}
+	}
+}
+
+function createPodLogSearchSession(clusterId, payload) {
+	cleanupExpiredPodLogSearchSessions();
+	const searchSessionId = randomUUID();
+
+	podLogSearchSessions.set(searchSessionId, {
+		searchSessionId,
+		clusterId,
+		createdAt: Date.now(),
+		...payload,
+	});
+
+	return podLogSearchSessions.get(searchSessionId);
+}
+
+function getPodLogSearchSession(clusterId, searchSessionId) {
+	cleanupExpiredPodLogSearchSessions();
+	const session = podLogSearchSessions.get(searchSessionId);
+
+	if (!session || session.clusterId !== clusterId) {
+		throw new AppError("Pod log search session not found", {
+			status: 404,
+			code: "POD_LOG_SEARCH_NOT_FOUND",
+		});
+	}
+
+	return session;
+}
+
+function buildPodLogSearchResponse(session, offset, limit) {
+	const normalizedOffset = Math.max(0, offset);
+	const normalizedLimit = Math.max(1, limit);
+	const logs = session.logs.slice(
+		normalizedOffset,
+		normalizedOffset + normalizedLimit,
+	);
+	const nextOffset = normalizedOffset + logs.length;
+
 	return {
-		logs: Buffer.concat(chunks).toString("utf8"),
+		searchSessionId: session.searchSessionId,
+		namespace: session.namespace,
+		podNames: session.podNames,
+		windowStartTimestamp: session.windowStartTimestamp,
+		windowEndTimestamp: session.windowEndTimestamp,
+		count: logs.length,
+		limit: normalizedLimit,
+		offset: normalizedOffset,
+		totalCount: session.logs.length,
+		hasMore: nextOffset < session.logs.length,
+		nextOffset: nextOffset < session.logs.length ? nextOffset : null,
+		logs: logs.map(({ parsedTimestamp, order, ...log }) => log),
 	};
+}
+
+async function createPodLogSearch(clusterId, namespace, options = {}) {
+	await requireActiveClusterSession(clusterId);
+	const window = buildLogWindow({
+		sinceSeconds: options.sinceSeconds,
+		windowEndTimestamp: options.windowEndTimestamp,
+	});
+	const podNames = [...new Set(options.podNames)];
+	const podLogs = await Promise.all(
+		podNames.map((podName) =>
+			fetchPodLogsForWindow(clusterId, namespace, podName, window),
+		),
+	);
+	const session = createPodLogSearchSession(clusterId, {
+		namespace,
+		podNames,
+		windowStartTimestamp: window.windowStartTimestamp,
+		windowEndTimestamp: window.windowEndTimestamp,
+		logs: sortCombinedLogRecords(podLogs.flat()),
+	});
+
+	return buildPodLogSearchResponse(session, 0, options.limit);
+}
+
+async function getPodLogSearchResults(
+	clusterId,
+	searchSessionId,
+	options = {},
+) {
+	const session = getPodLogSearchSession(clusterId, searchSessionId);
+	return buildPodLogSearchResponse(
+		session,
+		typeof options.offset === "number" ? options.offset : 0,
+		typeof options.limit === "number" ? options.limit : 500,
+	);
+}
+
+function resetPodLogSearchSessions() {
+	podLogSearchSessions.clear();
 }
 
 module.exports = {
 	CLUSTER_NOT_CONNECTED_MESSAGE,
-	getClusterPodLogs,
+	createPodLogSearch,
+	getPodLogSearchResults,
 	listClusterDeployments,
 	listClusterNamespaces,
 	listClusterPods,
 	listClusterPodsForDeployment,
+	resetPodLogSearchSessions,
 };
