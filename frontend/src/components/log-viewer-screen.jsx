@@ -21,11 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { fetchClusterDeployments } from "@/lib/deployments";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
-import {
-	combinePodLogDatasets,
-	fetchPodLogs,
-	parsePodLogsDataset,
-} from "@/lib/logs";
+import { createPodLogSearch, fetchPodLogSearchResults } from "@/lib/logs";
 import { fetchDeploymentPods } from "@/lib/pods";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
@@ -545,10 +541,12 @@ export function LogViewerScreen({
 	const [selectedLogId, setSelectedLogId] = useState(null);
 	const [logs, setLogs] = useState([]);
 	const [isLogsLoading, setIsLogsLoading] = useState(false);
+	const [isLoadingMoreLogs, setIsLoadingMoreLogs] = useState(false);
 	const [logsError, setLogsError] = useState("");
 	const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
 	const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 	const [lastRefreshDurationMs, setLastRefreshDurationMs] = useState(null);
+	const [activeSearch, setActiveSearch] = useState(null);
 	const [namespaces, setNamespaces] = useState([]);
 	const [isNamespacesLoading, setIsNamespacesLoading] = useState(false);
 	const [, setNamespacesError] = useState("");
@@ -570,9 +568,18 @@ export function LogViewerScreen({
 		Boolean(selectedNamespace) &&
 		Boolean(selectedDeployment) &&
 		selectedPods.length > 0 &&
-		!isLogsLoading;
+		!isLogsLoading &&
+		!isLoadingMoreLogs;
 	const selectedSinceSeconds =
 		TIME_RANGE_TO_SINCE_SECONDS[selectedTimeRange] ?? null;
+	const canLoadMore =
+		Boolean(activeSearch?.searchSessionId) &&
+		Boolean(activeSearch?.hasMore) &&
+		!isLogsLoading &&
+		!isLoadingMoreLogs;
+	const activeTimeRangeLabel =
+		activeSearch?.timeRangeLabel ?? selectedTimeRange;
+	const totalLoadedLogCount = activeSearch?.totalCount ?? logs.length;
 
 	useEffect(() => {
 		if (!clusterId) {
@@ -837,39 +844,43 @@ export function LogViewerScreen({
 		setIsLogsLoading(true);
 		setLogsError("");
 		setHasLoadedLogs(true);
+		setActiveSearch(null);
 
 		try {
-			const podDatasets = await Promise.all(
-				selectedPods.map(async (podName) => {
-					const rawLogs = await fetchPodLogs(
-						fetch,
-						clusterId,
-						selectedNamespace,
-						podName,
-						apiBaseUrl,
-						selectedSinceSeconds === null
-							? {}
-							: { sinceSeconds: selectedSinceSeconds },
-					);
-
-					return parsePodLogsDataset(rawLogs, {
-						clusterId,
-						namespace: selectedNamespace,
-						deployment: selectedDeployment,
-						podName,
-					});
-				}),
+			const response = await createPodLogSearch(
+				fetch,
+				clusterId,
+				selectedNamespace,
+				apiBaseUrl,
+				{
+					podNames: selectedPods,
+					sinceSeconds: selectedSinceSeconds,
+					limit: 500,
+					deployment: selectedDeployment,
+				},
 			);
 
-			const nextLogs = combinePodLogDatasets(podDatasets);
-			setLogs(nextLogs);
+			setLogs(response.logs);
+			setActiveSearch({
+				searchSessionId: response.searchSessionId,
+				namespace: response.namespace,
+				podNames: response.podNames,
+				windowStartTimestamp: response.windowStartTimestamp,
+				windowEndTimestamp: response.windowEndTimestamp,
+				totalCount: response.totalCount,
+				hasMore: response.hasMore,
+				nextOffset: response.nextOffset,
+				timeRangeLabel: selectedTimeRange,
+				query: queryDraft,
+				deployment: selectedDeployment,
+			});
 			setSelectedLogId((currentSelectedLogId) =>
-				nextLogs.some((log) => log.id === currentSelectedLogId)
+				response.logs.some((log) => log.id === currentSelectedLogId)
 					? currentSelectedLogId
 					: null,
 			);
 			setIsDetailsOpen(
-				nextLogs.some((log) => log.id === selectedLogId) && isDetailsOpen,
+				response.logs.some((log) => log.id === selectedLogId) && isDetailsOpen,
 			);
 			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
 		} catch (error) {
@@ -878,6 +889,45 @@ export function LogViewerScreen({
 		} finally {
 			setLastRefreshedAt(new Date());
 			setIsLogsLoading(false);
+		}
+	};
+
+	const handleLoadMoreLogs = async () => {
+		if (!canLoadMore) {
+			return;
+		}
+
+		setIsLoadingMoreLogs(true);
+		setLogsError("");
+
+		try {
+			const response = await fetchPodLogSearchResults(
+				fetch,
+				clusterId,
+				activeSearch.searchSessionId,
+				apiBaseUrl,
+				{
+					offset: activeSearch.nextOffset,
+					limit: 500,
+					deployment: activeSearch.deployment,
+				},
+			);
+
+			setLogs((currentLogs) => [...currentLogs, ...response.logs]);
+			setActiveSearch((currentSearch) =>
+				currentSearch
+					? {
+							...currentSearch,
+							totalCount: response.totalCount,
+							hasMore: response.hasMore,
+							nextOffset: response.nextOffset,
+						}
+					: currentSearch,
+			);
+		} catch (error) {
+			setLogsError(error.message || "Unable to load more logs");
+		} finally {
+			setIsLoadingMoreLogs(false);
 		}
 	};
 
@@ -1185,10 +1235,27 @@ export function LogViewerScreen({
 								</table>
 							</div>
 
-							<div className="flex items-center justify-end px-4 py-2 text-xs text-muted-foreground">
-								{hasLoadedLogs
-									? `Loaded ${logs.length.toLocaleString()} logs`
-									: `Showing logs from ${selectedTimeRange.toLowerCase()}`}
+							<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-xs text-muted-foreground">
+								<span>
+									{hasLoadedLogs
+										? `Loaded ${logs.length.toLocaleString()} of ${totalLoadedLogCount.toLocaleString()} logs`
+										: `Showing logs from ${activeTimeRangeLabel.toLowerCase()}`}
+								</span>
+								{activeSearch?.hasMore ? (
+									<Button
+										variant="outline"
+										className="h-8 rounded-md border-border/70 bg-transparent px-3 text-xs dark:border-white/10"
+										disabled={!canLoadMore}
+										onClick={() => {
+											void handleLoadMoreLogs();
+										}}
+									>
+										{isLoadingMoreLogs ? (
+											<Loader2 className="size-4 animate-spin" />
+										) : null}
+										Show More
+									</Button>
+								) : null}
 							</div>
 						</section>
 
@@ -1229,7 +1296,7 @@ export function LogViewerScreen({
 
 					<div className="flex items-center gap-6">
 						<span>
-							Showing: {visibleLogs.length} / {logs.length} logs
+							Showing: {visibleLogs.length} / {totalLoadedLogCount} logs
 						</span>
 						<span>
 							{lastRefreshDurationMs === null

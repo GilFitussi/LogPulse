@@ -183,6 +183,70 @@ export function createLogRecord(rawLine, metadata, lineIndex) {
 	};
 }
 
+export function createLogRecordFromSearchEntry(entry, metadata = {}) {
+	const namespace =
+		typeof entry?.namespace === "string" && entry.namespace.trim()
+			? entry.namespace.trim()
+			: metadata.namespace || "";
+	const podName =
+		typeof entry?.podName === "string" && entry.podName.trim()
+			? entry.podName.trim()
+			: metadata.podName || "—";
+	const deployment = metadata.deployment || "—";
+	const rawTimestamp =
+		typeof entry?.timestamp === "string" && entry.timestamp.trim()
+			? entry.timestamp.trim()
+			: null;
+	const rawLine =
+		typeof entry?.rawLine === "string" && entry.rawLine.trim()
+			? entry.rawLine.trim()
+			: typeof entry?.message === "string"
+				? entry.message
+				: "";
+	const message =
+		typeof entry?.message === "string" && entry.message.trim()
+			? entry.message.trim()
+			: rawLine;
+	const level =
+		typeof entry?.level === "string" && entry.level.trim()
+			? detectLogLevel(entry.level)
+			: detectLogLevel(message || rawLine);
+	const service = metadata.service || metadata.deployment || "—";
+	const details = {
+		message,
+		"log.level": level,
+		"service.name": service,
+		"kubernetes.cluster.id": String(metadata.clusterId),
+		"kubernetes.namespace_name": namespace,
+		"kubernetes.deployment.name": deployment,
+		"kubernetes.pod.name": podName,
+		"log.source": namespace && podName ? `${namespace}/${podName}` : podName,
+		log: rawLine,
+		pod: podName,
+		source: podName,
+	};
+
+	if (rawTimestamp) {
+		details["@timestamp"] = rawTimestamp;
+	}
+
+	return {
+		id:
+			typeof entry?.id === "string" && entry.id.trim()
+				? entry.id
+				: `${podName}:${rawTimestamp || "no-timestamp"}:${message}`,
+		rawTimestamp,
+		parsedTimestamp: parseLogTimestamp(rawTimestamp),
+		timestamp: formatLogTimestamp(rawTimestamp),
+		level,
+		pod: podName,
+		source: podName,
+		service,
+		message,
+		details,
+	};
+}
+
 export function parsePodLogsDataset(rawLogs, metadata) {
 	return String(rawLogs || "")
 		.split("\n")
@@ -211,6 +275,123 @@ export function combinePodLogDatasets(podDatasets) {
 		}
 
 		return right.id.localeCompare(left.id);
+	});
+}
+
+export function parsePodLogSearchResponse(data, metadata = {}) {
+	if (
+		typeof data?.searchSessionId !== "string" ||
+		!data.searchSessionId.trim() ||
+		!Array.isArray(data?.logs)
+	) {
+		throw new Error("Unexpected pod log search response from backend");
+	}
+
+	const namespace =
+		typeof data.namespace === "string" && data.namespace.trim()
+			? data.namespace.trim()
+			: metadata.namespace || "";
+
+	return {
+		searchSessionId: data.searchSessionId,
+		namespace,
+		podNames: Array.isArray(data.podNames) ? data.podNames : [],
+		windowStartTimestamp: data.windowStartTimestamp || null,
+		windowEndTimestamp: data.windowEndTimestamp || null,
+		count:
+			typeof data.count === "number" && data.count >= 0
+				? data.count
+				: data.logs.length,
+		limit: typeof data.limit === "number" && data.limit > 0 ? data.limit : null,
+		offset:
+			typeof data.offset === "number" && data.offset >= 0 ? data.offset : 0,
+		totalCount:
+			typeof data.totalCount === "number" && data.totalCount >= 0
+				? data.totalCount
+				: data.logs.length,
+		hasMore: Boolean(data.hasMore),
+		nextOffset:
+			typeof data.nextOffset === "number" && data.nextOffset >= 0
+				? data.nextOffset
+				: null,
+		logs: data.logs.map((entry) =>
+			createLogRecordFromSearchEntry(entry, {
+				...metadata,
+				namespace:
+					typeof entry?.namespace === "string" && entry.namespace.trim()
+						? entry.namespace.trim()
+						: namespace,
+				podName:
+					typeof entry?.podName === "string" && entry.podName.trim()
+						? entry.podName.trim()
+						: metadata.podName,
+			}),
+		),
+	};
+}
+
+export async function createPodLogSearch(
+	fetchImpl,
+	clusterId,
+	namespace,
+	apiBaseUrl,
+	options = {},
+) {
+	const response = await fetchImpl(
+		`${apiBaseUrl}/api/clusters/${clusterId}/namespaces/${encodeURIComponent(namespace)}/log-searches`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(options),
+		},
+	);
+	const data = await response.json().catch(() => ({}));
+
+	if (!response.ok) {
+		throw new Error(getPodLogsApiErrorMessage(data, "Unable to load logs"));
+	}
+
+	return parsePodLogSearchResponse(data, {
+		clusterId,
+		namespace,
+		deployment: options.deployment,
+	});
+}
+
+export async function fetchPodLogSearchResults(
+	fetchImpl,
+	clusterId,
+	searchSessionId,
+	apiBaseUrl,
+	options = {},
+) {
+	const searchParams = new URLSearchParams();
+
+	if (typeof options.offset === "number") {
+		searchParams.set("offset", String(options.offset));
+	}
+
+	if (typeof options.limit === "number") {
+		searchParams.set("limit", String(options.limit));
+	}
+
+	const queryString = searchParams.toString();
+	const response = await fetchImpl(
+		`${apiBaseUrl}/api/clusters/${clusterId}/log-searches/${encodeURIComponent(searchSessionId)}${queryString ? `?${queryString}` : ""}`,
+	);
+	const data = await response.json().catch(() => ({}));
+
+	if (!response.ok) {
+		throw new Error(
+			getPodLogsApiErrorMessage(data, "Unable to load more logs"),
+		);
+	}
+
+	return parsePodLogSearchResponse(data, {
+		clusterId,
+		deployment: options.deployment,
 	});
 }
 
