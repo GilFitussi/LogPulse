@@ -135,14 +135,21 @@
   }
 
   html {
+    height: 100dvh;
     @apply font-sans antialiased;
   }
 
   body {
     margin: 0;
     min-width: 320px;
-    min-height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
     @apply bg-background text-foreground;
+  }
+
+  #root {
+    height: 100dvh;
+    overflow: hidden;
   }
 
   button,

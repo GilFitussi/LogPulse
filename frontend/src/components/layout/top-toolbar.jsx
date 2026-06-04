@@ -62,7 +62,7 @@ function ProductNavTab({ isActive, disabled, onClick, children }) {
 			disabled={disabled}
 			aria-pressed={isActive}
 			className={cn(
-				"rounded-none border-b-2 px-4 py-5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+				"rounded-none border-b-2 px-2.5 py-2 text-[0.8rem] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
 				isActive
 					? "border-primary text-foreground"
 					: "border-transparent text-muted-foreground hover:text-foreground",
@@ -82,16 +82,16 @@ export function TopToolbar({
 }) {
 	return (
 		<header className="sticky top-0 z-30 border-b border-toolbar-border bg-toolbar text-foreground backdrop-blur">
-			<div className="mx-auto flex h-16 w-full max-w-none items-center justify-between gap-4 px-5 lg:px-6">
-				<div className="flex min-w-0 items-center gap-4">
-					<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
-						<Activity className="size-5" aria-hidden="true" />
+			<div className="mx-auto flex h-10 w-full max-w-none items-center justify-between gap-2 px-3 lg:px-4">
+				<div className="flex min-w-0 items-center gap-2.5">
+					<div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+						<Activity className="size-4" aria-hidden="true" />
 					</div>
-					<h1 className="truncate text-lg font-semibold tracking-tight text-foreground">
+					<h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
 						OS-LogPulse
 					</h1>
 					<nav
-						className="ml-4 flex h-16 items-center gap-6 border-l border-toolbar-border/40 pl-6"
+						className="ml-2 flex h-10 items-center gap-2 border-l border-toolbar-border/40 pl-3"
 						aria-label="Product navigation"
 					>
 						<ProductNavTab
