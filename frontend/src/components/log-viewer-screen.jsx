@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DatasetFieldService } from "@/lib/datasetFieldService";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -59,17 +60,8 @@ const TIME_RANGE_TO_SINCE_SECONDS = {
 	"Last 24 hours": 86400,
 };
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
-const FIELD_ROWS = [
-	{ name: "@timestamp", type: "date" },
-	{ name: "message", type: "text" },
-	{ name: "log.level", type: "keyword" },
-	{ name: "service.name", type: "keyword" },
-	{ name: "kubernetes.namespace_name", type: "keyword" },
-	{ name: "kubernetes.pod.name", type: "keyword" },
-	{ name: "kubernetes.deployment.name", type: "keyword" },
-	{ name: "http.request.method", type: "keyword" },
-	{ name: "http.response.status_code", type: "long" },
-];
+const DEFAULT_FILTER_FIELD = "message";
+const FILTER_FIELD_EXCLUDED_NAMES = new Set(["log", "pod", "source"]);
 const FILTER_OPERATORS = [
 	{ value: "is", label: "is" },
 	{ value: "isNot", label: "is not" },
@@ -543,7 +535,7 @@ export function LogViewerScreen({
 		'level:error AND service.name:"payment-service" AND http.response.status_code >= 500';
 	const [queryDraft, setQueryDraft] = useState(initialQuery);
 	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
-	const [filterDraftField, setFilterDraftField] = useState(FIELD_ROWS[0].name);
+	const [filterDraftField, setFilterDraftField] = useState(DEFAULT_FILTER_FIELD);
 	const [filterDraftOperator, setFilterDraftOperator] = useState(
 		FILTER_OPERATORS[0].value,
 	);
@@ -590,10 +582,21 @@ export function LogViewerScreen({
 		() => namespaces.map((namespace) => namespace.name),
 		[namespaces],
 	);
-	const filterFieldOptions = useMemo(
-		() => FIELD_ROWS.map((field) => field.name),
-		[],
+	const datasetFields = useMemo(
+		() => DatasetFieldService.discoverFields(logs.map((log) => log.details ?? log)),
+		[logs],
 	);
+	const filterFieldOptions = useMemo(() => {
+		const searchableFields = datasetFields
+			.map((field) => field.name)
+			.filter((fieldName) => !FILTER_FIELD_EXCLUDED_NAMES.has(fieldName));
+
+		if (searchableFields.length === 0) {
+			return [DEFAULT_FILTER_FIELD];
+		}
+
+		return searchableFields;
+	}, [datasetFields]);
 	const canSearch =
 		Boolean(clusterId) &&
 		Boolean(selectedNamespace) &&
