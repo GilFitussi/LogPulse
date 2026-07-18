@@ -1,3 +1,5 @@
+export const MAX_LOG_DATASET_SIZE = 5000;
+
 function normalizeLogLine(value) {
 	return typeof value === "string" ? value.replace(/\r/g, "") : "";
 }
@@ -253,6 +255,26 @@ export function parsePodLogsDataset(rawLogs, metadata) {
 		.map((line) => normalizeLogLine(line))
 		.filter((line) => line.trim())
 		.map((line, index) => createLogRecord(line, metadata, index));
+}
+
+export function trimLogDataset(logs, maxSize = MAX_LOG_DATASET_SIZE) {
+	const safeMaxSize =
+		Number.isInteger(maxSize) && maxSize > 0 ? maxSize : MAX_LOG_DATASET_SIZE;
+	const entries = Array.isArray(logs) ? logs : [];
+
+	if (entries.length <= safeMaxSize) {
+		return {
+			logs: entries,
+			trimmedCount: 0,
+			isTrimmed: false,
+		};
+	}
+
+	return {
+		logs: entries.slice(0, safeMaxSize),
+		trimmedCount: entries.length - safeMaxSize,
+		isTrimmed: true,
+	};
 }
 
 export function combinePodLogDatasets(podDatasets) {
