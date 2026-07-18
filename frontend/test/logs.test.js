@@ -12,6 +12,7 @@ import {
 	parsePodLogSearchResponse,
 	parsePodLogsDataset,
 	parsePodLogsResponse,
+	trimLogDataset,
 } from "../src/lib/logs.js";
 
 test("parsePodLogsResponse rejects unexpected payloads", () => {
@@ -81,6 +82,30 @@ test("parseLogTimestamp supports comma millisecond timestamps", () => {
 		parseLogTimestamp("2026-06-04T10:30:00,123Z"),
 		Date.parse("2026-06-04T10:30:00.123Z"),
 	);
+});
+
+test("trimLogDataset keeps the newest loaded records within a safe maximum", () => {
+	const records = [
+		{ id: "newest" },
+		{ id: "middle" },
+		{ id: "oldest" },
+	];
+
+	assert.deepEqual(trimLogDataset(records, 2), {
+		logs: records.slice(0, 2),
+		trimmedCount: 1,
+		isTrimmed: true,
+	});
+});
+
+test("trimLogDataset leaves datasets under the limit unchanged", () => {
+	const records = [{ id: "one" }, { id: "two" }];
+
+	assert.deepEqual(trimLogDataset(records, 5), {
+		logs: records,
+		trimmedCount: 0,
+		isTrimmed: false,
+	});
 });
 
 test("combinePodLogDatasets sorts newer timestamped records first", () => {

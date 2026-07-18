@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import {
+	memo,
+	useCallback,
+	useDeferredValue,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	CalendarDays,
 	Check,
@@ -21,7 +29,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { fetchClusterDeployments } from "@/lib/deployments";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
-import { createPodLogSearch, fetchPodLogSearchResults } from "@/lib/logs";
+import {
+	MAX_LOG_DATASET_SIZE,
+	createPodLogSearch,
+	fetchPodLogSearchResults,
+	trimLogDataset,
+} from "@/lib/logs";
 import { fetchDeploymentPods } from "@/lib/pods";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
@@ -63,6 +76,8 @@ const FILTER_OPERATORS = [
 	{ value: "contains", label: "contains" },
 	{ value: "notContains", label: "does not contain" },
 ];
+const LOG_ROW_HEIGHT = 53;
+const LOG_ROW_OVERSCAN = 8;
 
 function formatLastRefreshedAt(lastRefreshedAt) {
 	if (!lastRefreshedAt) {
@@ -368,14 +383,14 @@ function DetailsTabButton({ active, children, onClick }) {
 	);
 }
 
-function LogDetailsPanel({
+const LogDetailsPanel = memo(function LogDetailsPanel({
 	log,
 	selectedDetailTab,
 	onSelectTab,
 	onClose,
 	className,
 }) {
-	const detailEntries = Object.entries(log.details);
+	const detailEntries = useMemo(() => Object.entries(log.details), [log]);
 
 	return (
 		<aside
@@ -490,7 +505,7 @@ function LogDetailsPanel({
 			</div>
 		</aside>
 	);
-}
+});
 
 export function LogViewerScreen({
 	cluster,
@@ -556,13 +571,29 @@ export function LogViewerScreen({
 	const [pods, setPods] = useState([]);
 	const [isPodsLoading, setIsPodsLoading] = useState(false);
 	const [podsError, setPodsError] = useState("");
+	const [trimmedLogCount, setTrimmedLogCount] = useState(0);
+	const [logTableScrollTop, setLogTableScrollTop] = useState(0);
+	const [logTableViewportHeight, setLogTableViewportHeight] = useState(0);
+	const logTableContainerRef = useRef(null);
+	const logTableScrollFrameRef = useRef(null);
 
 	const isConnected = isClusterConnected(cluster);
 	const selectedNamespace = clusterViewerState.selectedNamespace;
 	const selectedDeployment = clusterViewerState.selectedDeployment;
 	const selectedPods = clusterViewerState.selectedPods;
-	const selectedLog = logs.find((entry) => entry.id === selectedLogId) || null;
-	const namespaceOptions = namespaces.map((namespace) => namespace.name);
+	const deferredQueryDraft = useDeferredValue(queryDraft);
+	const selectedLog = useMemo(
+		() => logs.find((entry) => entry.id === selectedLogId) || null,
+		[logs, selectedLogId],
+	);
+	const namespaceOptions = useMemo(
+		() => namespaces.map((namespace) => namespace.name),
+		[namespaces],
+	);
+	const filterFieldOptions = useMemo(
+		() => FIELD_ROWS.map((field) => field.name),
+		[],
+	);
 	const canSearch =
 		Boolean(clusterId) &&
 		Boolean(selectedNamespace) &&
@@ -575,11 +606,30 @@ export function LogViewerScreen({
 	const canLoadMore =
 		Boolean(activeSearch?.searchSessionId) &&
 		Boolean(activeSearch?.hasMore) &&
+		logs.length < MAX_LOG_DATASET_SIZE &&
 		!isLogsLoading &&
 		!isLoadingMoreLogs;
 	const activeTimeRangeLabel =
 		activeSearch?.timeRangeLabel ?? selectedTimeRange;
 	const totalLoadedLogCount = activeSearch?.totalCount ?? logs.length;
+	const loadedLogsSummary = useMemo(() => {
+		if (!hasLoadedLogs) {
+			return `Showing logs from ${activeTimeRangeLabel.toLowerCase()}`;
+		}
+
+		const capSummary =
+			trimmedLogCount > 0
+				? ` (capped at ${MAX_LOG_DATASET_SIZE.toLocaleString()})`
+				: "";
+
+		return `Loaded ${logs.length.toLocaleString()} of ${totalLoadedLogCount.toLocaleString()} logs${capSummary}`;
+	}, [
+		activeTimeRangeLabel,
+		hasLoadedLogs,
+		logs.length,
+		totalLoadedLogCount,
+		trimmedLogCount,
+	]);
 
 	useEffect(() => {
 		if (!clusterId) {
@@ -805,10 +855,70 @@ export function LogViewerScreen({
 			});
 	};
 
-	const visibleLogs = logs;
+	const queryResults = useMemo(() => {
+		// The loaded snapshot already reflects the submitted query on the server.
+		// Keep this derivation explicit and memoized so future client-side query
+		// refinements do not scan large datasets during unrelated renders.
+		void deferredQueryDraft;
+		return logs;
+	}, [logs, deferredQueryDraft]);
+	const virtualWindow = useMemo(() => {
+		const rowCount = queryResults.length;
+		const viewportRowCount = Math.max(
+			1,
+			Math.ceil(logTableViewportHeight / LOG_ROW_HEIGHT),
+		);
+		const startIndex = Math.max(
+			0,
+			Math.floor(logTableScrollTop / LOG_ROW_HEIGHT) - LOG_ROW_OVERSCAN,
+		);
+		const endIndex = Math.min(
+			rowCount,
+			startIndex + viewportRowCount + LOG_ROW_OVERSCAN * 2,
+		);
+
+		return {
+			startIndex,
+			endIndex,
+			topPadding: startIndex * LOG_ROW_HEIGHT,
+			bottomPadding: Math.max(0, (rowCount - endIndex) * LOG_ROW_HEIGHT),
+		};
+	}, [logTableScrollTop, logTableViewportHeight, queryResults.length]);
+	const visibleLogs = useMemo(
+		() => queryResults.slice(virtualWindow.startIndex, virtualWindow.endIndex),
+		[queryResults, virtualWindow.startIndex, virtualWindow.endIndex],
+	);
 	const activeSelectedLogId = selectedLog?.id ?? null;
 	const isDetailsVisible = isDetailsOpen && selectedLog;
 	const detailsPanelContainerRef = useRef(null);
+
+	useEffect(() => {
+		const tableContainer = logTableContainerRef.current;
+
+		if (!tableContainer) {
+			return undefined;
+		}
+
+		const updateViewportHeight = () => {
+			setLogTableViewportHeight(tableContainer.clientHeight);
+		};
+
+		updateViewportHeight();
+		const resizeObserver = new ResizeObserver(updateViewportHeight);
+		resizeObserver.observe(tableContainer);
+
+		return () => {
+			resizeObserver.disconnect();
+		};
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (logTableScrollFrameRef.current) {
+				cancelAnimationFrame(logTableScrollFrameRef.current);
+			}
+		};
+	}, []);
 
 	const handleSelectDeployment = (value) => {
 		if (!clusterId) {
@@ -845,6 +955,7 @@ export function LogViewerScreen({
 		setLogsError("");
 		setHasLoadedLogs(true);
 		setActiveSearch(null);
+		setTrimmedLogCount(0);
 
 		try {
 			const response = await createPodLogSearch(
@@ -860,7 +971,11 @@ export function LogViewerScreen({
 				},
 			);
 
-			setLogs(response.logs);
+			const trimmedDataset = trimLogDataset(response.logs);
+			setLogs(trimmedDataset.logs);
+			setTrimmedLogCount(trimmedDataset.trimmedCount);
+			setLogTableScrollTop(0);
+			logTableContainerRef.current?.scrollTo({ top: 0 });
 			setActiveSearch({
 				searchSessionId: response.searchSessionId,
 				namespace: response.namespace,
@@ -868,19 +983,21 @@ export function LogViewerScreen({
 				windowStartTimestamp: response.windowStartTimestamp,
 				windowEndTimestamp: response.windowEndTimestamp,
 				totalCount: response.totalCount,
-				hasMore: response.hasMore,
+				hasMore:
+					response.hasMore && trimmedDataset.logs.length < MAX_LOG_DATASET_SIZE,
 				nextOffset: response.nextOffset,
 				timeRangeLabel: selectedTimeRange,
 				query: queryDraft,
 				deployment: selectedDeployment,
 			});
 			setSelectedLogId((currentSelectedLogId) =>
-				response.logs.some((log) => log.id === currentSelectedLogId)
+				trimmedDataset.logs.some((log) => log.id === currentSelectedLogId)
 					? currentSelectedLogId
 					: null,
 			);
 			setIsDetailsOpen(
-				response.logs.some((log) => log.id === selectedLogId) && isDetailsOpen,
+				trimmedDataset.logs.some((log) => log.id === selectedLogId) &&
+					isDetailsOpen,
 			);
 			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
 		} catch (error) {
@@ -913,13 +1030,26 @@ export function LogViewerScreen({
 				},
 			);
 
-			setLogs((currentLogs) => [...currentLogs, ...response.logs]);
+			setLogs((currentLogs) => {
+				const trimmedDataset = trimLogDataset([
+					...currentLogs,
+					...response.logs,
+				]);
+				setTrimmedLogCount(
+					Math.max(
+						trimmedDataset.trimmedCount,
+						response.totalCount - trimmedDataset.logs.length,
+					),
+				);
+				return trimmedDataset.logs;
+			});
 			setActiveSearch((currentSearch) =>
 				currentSearch
 					? {
 							...currentSearch,
 							totalCount: response.totalCount,
-							hasMore: response.hasMore,
+							hasMore:
+								response.hasMore && response.nextOffset < MAX_LOG_DATASET_SIZE,
 							nextOffset: response.nextOffset,
 						}
 					: currentSearch,
@@ -950,10 +1080,25 @@ export function LogViewerScreen({
 		setIsFilterPopoverOpen(false);
 	};
 
-	const handleSelectLog = (logId) => {
+	const handleSelectLog = useCallback((logId) => {
 		setSelectedLogId(logId);
 		setIsDetailsOpen(true);
-	};
+	}, []);
+	const handleCloseDetails = useCallback(() => {
+		setIsDetailsOpen(false);
+	}, []);
+
+	const handleLogTableScroll = useCallback((event) => {
+		const nextScrollTop = event.currentTarget.scrollTop;
+
+		if (logTableScrollFrameRef.current) {
+			cancelAnimationFrame(logTableScrollFrameRef.current);
+		}
+
+		logTableScrollFrameRef.current = requestAnimationFrame(() => {
+			setLogTableScrollTop(nextScrollTop);
+		});
+	}, []);
 
 	const togglePod = (pod) => {
 		if (!clusterId) {
@@ -1050,7 +1195,7 @@ export function LogViewerScreen({
 											<DropdownControl
 												label="Field"
 												value={filterDraftField}
-												options={FIELD_ROWS.map((field) => field.name)}
+												options={filterFieldOptions}
 												onSelect={setFilterDraftField}
 												className="space-y-1"
 											/>
@@ -1136,7 +1281,11 @@ export function LogViewerScreen({
 								isDetailsVisible ? "hidden xl:flex" : "flex",
 							)}
 						>
-							<div className="min-h-0 overflow-auto">
+							<div
+								ref={logTableContainerRef}
+								onScroll={handleLogTableScroll}
+								className="min-h-0 flex-1 overflow-auto"
+							>
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead className="sticky top-0 bg-card/95 dark:bg-[#0b1622]">
 										<tr className="text-left text-xs uppercase tracking-[0.02em] text-muted-foreground">
@@ -1180,7 +1329,7 @@ export function LogViewerScreen({
 													{logsError}
 												</td>
 											</tr>
-										) : visibleLogs.length === 0 ? (
+										) : queryResults.length === 0 ? (
 											<tr>
 												<td
 													colSpan={6}
@@ -1192,7 +1341,13 @@ export function LogViewerScreen({
 												</td>
 											</tr>
 										) : (
-											visibleLogs.map((log) => (
+											<>
+												{virtualWindow.topPadding > 0 ? (
+													<tr aria-hidden="true">
+														<td colSpan={6} style={{ height: virtualWindow.topPadding }} />
+													</tr>
+												) : null}
+												{visibleLogs.map((log) => (
 												<tr
 													key={log.id}
 													onClick={() => handleSelectLog(log.id)}
@@ -1229,18 +1384,23 @@ export function LogViewerScreen({
 														{log.message}
 													</td>
 												</tr>
-											))
+												))}
+												{virtualWindow.bottomPadding > 0 ? (
+													<tr aria-hidden="true">
+														<td
+															colSpan={6}
+															style={{ height: virtualWindow.bottomPadding }}
+														/>
+													</tr>
+												) : null}
+											</>
 										)}
 									</tbody>
 								</table>
 							</div>
 
 							<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-xs text-muted-foreground">
-								<span>
-									{hasLoadedLogs
-										? `Loaded ${logs.length.toLocaleString()} of ${totalLoadedLogCount.toLocaleString()} logs`
-										: `Showing logs from ${activeTimeRangeLabel.toLowerCase()}`}
-								</span>
+								<span>{loadedLogsSummary}</span>
 								{activeSearch?.hasMore ? (
 									<Button
 										variant="outline"
@@ -1268,7 +1428,7 @@ export function LogViewerScreen({
 									log={selectedLog}
 									selectedDetailTab={selectedDetailTab}
 									onSelectTab={setSelectedDetailTab}
-									onClose={() => setIsDetailsOpen(false)}
+									onClose={handleCloseDetails}
 									className="xl:h-full"
 								/>
 							</div>
@@ -1296,7 +1456,7 @@ export function LogViewerScreen({
 
 					<div className="flex items-center gap-6">
 						<span>
-							Showing: {visibleLogs.length} / {totalLoadedLogCount} logs
+							Showing: {queryResults.length} / {totalLoadedLogCount} logs
 						</span>
 						<span>
 							{lastRefreshDurationMs === null
