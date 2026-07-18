@@ -60,14 +60,14 @@ const TIME_RANGE_TO_SINCE_SECONDS = {
 	"Last 24 hours": 86400,
 };
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
-const DEFAULT_FILTER_FIELD = "message";
-const FILTER_FIELD_EXCLUDED_NAMES = new Set(["log", "pod", "source"]);
-const FILTER_OPERATORS = [
-	{ value: "is", label: "is" },
-	{ value: "isNot", label: "is not" },
-	{ value: "contains", label: "contains" },
-	{ value: "notContains", label: "does not contain" },
-];
+const FILTER_OPERATORS_BY_FIELD_TYPE = {
+	keyword: [{ value: "is", label: "is" }],
+	text: [
+		{ value: "is", label: "is" },
+		{ value: "contains", label: "contains" },
+	],
+};
+const DEFAULT_FILTER_OPERATORS = FILTER_OPERATORS_BY_FIELD_TYPE.text;
 const LOG_ROW_HEIGHT = 53;
 const LOG_ROW_OVERSCAN = 8;
 
@@ -158,6 +158,84 @@ function DropdownControl({
 							</div>
 						</DropdownMenuItem>
 					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
+	);
+}
+
+function FilterFieldDropdown({
+	value,
+	fields,
+	selectedField,
+	searchText,
+	onSearchTextChange,
+	onSelect,
+	disabled = false,
+}) {
+	const displayValue = selectedField?.name || "Select field";
+
+	return (
+		<div className="min-w-0 space-y-1">
+			<ControlLabel>Field</ControlLabel>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild disabled={disabled}>
+					<Button
+						variant="outline"
+						disabled={disabled}
+						className="h-8 w-full justify-between rounded-md border-border/70 bg-background/80 px-2.5 text-[0.8rem] font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+					>
+						<span className="flex min-w-0 items-center gap-2 overflow-hidden">
+							<span className="truncate">{displayValue}</span>
+							{selectedField ? (
+								<span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground dark:border-white/10">
+									{selectedField.type}
+								</span>
+							) : null}
+						</span>
+						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent className="max-h-72 w-72 overflow-y-auto border-border/70 bg-popover p-2 text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+					<div className="pb-2">
+						<label htmlFor="filter-field-search" className="sr-only">
+							Search fields
+						</label>
+						<input
+							id="filter-field-search"
+							type="text"
+							value={searchText}
+							onChange={(event) => onSearchTextChange(event.target.value)}
+							onKeyDown={(event) => event.stopPropagation()}
+							placeholder="Search fields"
+							className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+						/>
+					</div>
+					{fields.length > 0 ? (
+						fields.map((field) => (
+							<DropdownMenuItem
+								key={field.name}
+								onSelect={() => onSelect?.(field.name)}
+								className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+							>
+								<div className="flex w-full items-center justify-between gap-3">
+									<div className="min-w-0">
+										<div className="truncate">{field.name}</div>
+										<div className="text-[11px] text-muted-foreground">
+											{formatFieldType(field.type)} field
+										</div>
+									</div>
+									{field.name === value ? (
+										<Check className="size-4 shrink-0 text-primary" />
+									) : null}
+								</div>
+							</DropdownMenuItem>
+						))
+					) : (
+						<div className="px-3 py-2 text-sm text-muted-foreground">
+							No matching fields
+						</div>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -330,32 +408,14 @@ function PodsDropdown({
 	);
 }
 
-function escapeKqlValue(value) {
-	return String(value).replaceAll('"', '\\"');
+function getFilterOperatorsForField(field) {
+	return (
+		FILTER_OPERATORS_BY_FIELD_TYPE[field?.type] ?? DEFAULT_FILTER_OPERATORS
+	);
 }
 
-function buildKqlFilterExpression(field, operator, value) {
-	const normalizedValue = value.trim();
-
-	if (!normalizedValue) {
-		return "";
-	}
-
-	const escapedValue = escapeKqlValue(normalizedValue);
-
-	if (operator === "is") {
-		return `${field}:"${escapedValue}"`;
-	}
-
-	if (operator === "isNot") {
-		return `NOT ${field}:"${escapedValue}"`;
-	}
-
-	if (operator === "notContains") {
-		return `NOT ${field}:*${escapedValue}*`;
-	}
-
-	return `${field}:*${escapedValue}*`;
+function formatFieldType(type) {
+	return type ? type.charAt(0).toUpperCase() + type.slice(1) : "Unknown";
 }
 
 function DetailsTabButton({ active, children, onClick }) {
@@ -535,11 +595,12 @@ export function LogViewerScreen({
 		'level:error AND service.name:"payment-service" AND http.response.status_code >= 500';
 	const [queryDraft, setQueryDraft] = useState(initialQuery);
 	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
-	const [filterDraftField, setFilterDraftField] = useState(DEFAULT_FILTER_FIELD);
+	const [filterDraftField, setFilterDraftField] = useState("");
 	const [filterDraftOperator, setFilterDraftOperator] = useState(
-		FILTER_OPERATORS[0].value,
+		DEFAULT_FILTER_OPERATORS[0].value,
 	);
 	const [filterDraftValue, setFilterDraftValue] = useState("");
+	const [filterFieldSearchText, setFilterFieldSearchText] = useState("");
 	const [selectedTimeRange, setSelectedTimeRange] = useState(
 		MOCK_TIME_RANGES[0],
 	);
@@ -583,20 +644,48 @@ export function LogViewerScreen({
 		[namespaces],
 	);
 	const datasetFields = useMemo(
-		() => DatasetFieldService.discoverFields(logs.map((log) => log.details ?? log)),
+		() =>
+			DatasetFieldService.discoverFields(logs.map((log) => log.details ?? log)),
 		[logs],
 	);
-	const filterFieldOptions = useMemo(() => {
-		const searchableFields = datasetFields
-			.map((field) => field.name)
-			.filter((fieldName) => !FILTER_FIELD_EXCLUDED_NAMES.has(fieldName));
+	const searchableFilterFields = datasetFields;
+	const filteredFilterFields = useMemo(() => {
+		const normalizedSearch = filterFieldSearchText.trim().toLowerCase();
 
-		if (searchableFields.length === 0) {
-			return [DEFAULT_FILTER_FIELD];
+		if (!normalizedSearch) {
+			return searchableFilterFields;
 		}
 
-		return searchableFields;
-	}, [datasetFields]);
+		return searchableFilterFields.filter(
+			(field) =>
+				field.name.toLowerCase().includes(normalizedSearch) ||
+				field.type.toLowerCase().includes(normalizedSearch),
+		);
+	}, [filterFieldSearchText, searchableFilterFields]);
+	const selectedFilterField = useMemo(() => {
+		if (!hasLoadedLogs || searchableFilterFields.length === 0) {
+			return null;
+		}
+
+		return (
+			searchableFilterFields.find((field) => field.name === filterDraftField) ??
+			searchableFilterFields[0]
+		);
+	}, [filterDraftField, hasLoadedLogs, searchableFilterFields]);
+	const selectedFilterFieldName = selectedFilterField?.name ?? "";
+	const filterOperatorOptions = useMemo(
+		() => getFilterOperatorsForField(selectedFilterField),
+		[selectedFilterField],
+	);
+	const selectedFilterOperator = filterOperatorOptions.some(
+		(operator) => operator.value === filterDraftOperator,
+	)
+		? filterDraftOperator
+		: filterOperatorOptions[0].value;
+	const selectedFilterOperatorLabel =
+		filterOperatorOptions.find(
+			(operator) => operator.value === selectedFilterOperator,
+		)?.label ?? filterOperatorOptions[0].label;
 	const canSearch =
 		Boolean(clusterId) &&
 		Boolean(selectedNamespace) &&
@@ -604,6 +693,7 @@ export function LogViewerScreen({
 		selectedPods.length > 0 &&
 		!isLogsLoading &&
 		!isLoadingMoreLogs;
+	const canOpenFilterDialog = hasLoadedLogs;
 	const selectedSinceSeconds =
 		TIME_RANGE_TO_SINCE_SECONDS[selectedTimeRange] ?? null;
 	const canLoadMore =
@@ -1065,21 +1155,12 @@ export function LogViewerScreen({
 	};
 
 	const handleAddStructuredFilter = () => {
-		const nextExpression = buildKqlFilterExpression(
-			filterDraftField,
-			filterDraftOperator,
-			filterDraftValue,
-		);
-
-		if (!nextExpression) {
+		if (!selectedFilterFieldName || !filterDraftValue.trim()) {
 			return;
 		}
 
-		setQueryDraft(
-			(currentQuery) =>
-				`${currentQuery}${currentQuery.trim() ? " AND " : ""}${nextExpression}`,
-		);
 		setFilterDraftValue("");
+		setFilterFieldSearchText("");
 		setIsFilterPopoverOpen(false);
 	};
 
@@ -1188,70 +1269,76 @@ export function LogViewerScreen({
 								<Button
 									variant="ghost"
 									className="h-8 px-2 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+									disabled={!canOpenFilterDialog}
 									onClick={() => setIsFilterPopoverOpen((current) => !current)}
 								>
 									+ Add Filter
 								</Button>
 								{isFilterPopoverOpen ? (
 									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
-										<div className="grid gap-2">
-											<DropdownControl
-												label="Field"
-												value={filterDraftField}
-												options={filterFieldOptions}
-												onSelect={setFilterDraftField}
-												className="space-y-1"
-											/>
-											<DropdownControl
-												label="Operator"
-												value={
-													FILTER_OPERATORS.find(
-														(operator) =>
-															operator.value === filterDraftOperator,
-													)?.label
-												}
-												options={FILTER_OPERATORS.map(
-													(operator) => operator.label,
-												)}
-												onSelect={(nextLabel) => {
-													const nextOperator = FILTER_OPERATORS.find(
-														(operator) => operator.label === nextLabel,
-													);
-													if (nextOperator) {
-														setFilterDraftOperator(nextOperator.value);
-													}
-												}}
-												className="space-y-1"
-											/>
-											<div className="space-y-1">
-												<ControlLabel>Value</ControlLabel>
-												<input
-													type="text"
-													value={filterDraftValue}
-													onChange={(event) =>
-														setFilterDraftValue(event.target.value)
-													}
-													placeholder="Enter value"
-													className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+										{searchableFilterFields.length === 0 ? (
+											<div className="rounded-md border border-border/70 bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
+												No searchable fields found in this dataset.
+											</div>
+										) : (
+											<div className="grid gap-2">
+												<FilterFieldDropdown
+													value={selectedFilterFieldName}
+													fields={filteredFilterFields}
+													selectedField={selectedFilterField}
+													searchText={filterFieldSearchText}
+													onSearchTextChange={setFilterFieldSearchText}
+													onSelect={setFilterDraftField}
 												/>
+												<DropdownControl
+													label="Operator"
+													value={selectedFilterOperatorLabel}
+													options={filterOperatorOptions.map(
+														(operator) => operator.label,
+													)}
+													onSelect={(nextLabel) => {
+														const nextOperator = filterOperatorOptions.find(
+															(operator) => operator.label === nextLabel,
+														);
+														if (nextOperator) {
+															setFilterDraftOperator(nextOperator.value);
+														}
+													}}
+													className="space-y-1"
+												/>
+												<div className="space-y-1">
+													<ControlLabel>Value</ControlLabel>
+													<input
+														type="text"
+														value={filterDraftValue}
+														onChange={(event) =>
+															setFilterDraftValue(event.target.value)
+														}
+														placeholder="Enter value"
+														className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+													/>
+												</div>
+												<div className="flex justify-end gap-2 pt-1">
+													<Button
+														variant="ghost"
+														className="h-8 px-2 text-xs"
+														onClick={() => setIsFilterPopoverOpen(false)}
+													>
+														Cancel
+													</Button>
+													<Button
+														className="h-8 px-3 text-xs"
+														disabled={
+															!selectedFilterFieldName ||
+															!filterDraftValue.trim()
+														}
+														onClick={handleAddStructuredFilter}
+													>
+														Apply
+													</Button>
+												</div>
 											</div>
-											<div className="flex justify-end gap-2 pt-1">
-												<Button
-													variant="ghost"
-													className="h-8 px-2 text-xs"
-													onClick={() => setIsFilterPopoverOpen(false)}
-												>
-													Cancel
-												</Button>
-												<Button
-													className="h-8 px-3 text-xs"
-													disabled={!filterDraftValue.trim()}
-													onClick={handleAddStructuredFilter}
-												>
-													Apply
-												</Button>
-											</div>
-										</div>
+										)}
 									</div>
 								) : null}
 							</div>
@@ -1347,46 +1434,49 @@ export function LogViewerScreen({
 											<>
 												{virtualWindow.topPadding > 0 ? (
 													<tr aria-hidden="true">
-														<td colSpan={6} style={{ height: virtualWindow.topPadding }} />
+														<td
+															colSpan={6}
+															style={{ height: virtualWindow.topPadding }}
+														/>
 													</tr>
 												) : null}
 												{visibleLogs.map((log) => (
-												<tr
-													key={log.id}
-													onClick={() => handleSelectLog(log.id)}
-													className={cn(
-														"cursor-pointer text-foreground/90 hover:bg-muted/50 dark:hover:bg-white/[0.03]",
-														activeSelectedLogId === log.id && isDetailsOpen
-															? "bg-muted/60 dark:bg-white/[0.04]"
-															: "",
-													)}
-												>
-													<td className="border-b border-white/6 px-3 py-3">
-														<ChevronRight className="size-4" />
-													</td>
-													<td className="border-b border-white/6 px-3 py-3 whitespace-nowrap">
-														{log.timestamp}
-													</td>
-													<td className="border-b border-white/6 px-3 py-3">
-														<span
-															className={cn(
-																"inline-flex rounded-md border px-2 py-1 text-xs font-medium",
-																getLevelBadgeClass(log.level),
-															)}
-														>
-															{log.level}
-														</span>
-													</td>
-													<td className="border-b border-white/6 px-3 py-3 max-w-60 truncate">
-														{log.pod}
-													</td>
-													<td className="border-b border-white/6 px-3 py-3 whitespace-nowrap">
-														{log.service}
-													</td>
-													<td className="border-b border-white/6 px-3 py-3 max-w-[26rem] truncate">
-														{log.message}
-													</td>
-												</tr>
+													<tr
+														key={log.id}
+														onClick={() => handleSelectLog(log.id)}
+														className={cn(
+															"cursor-pointer text-foreground/90 hover:bg-muted/50 dark:hover:bg-white/[0.03]",
+															activeSelectedLogId === log.id && isDetailsOpen
+																? "bg-muted/60 dark:bg-white/[0.04]"
+																: "",
+														)}
+													>
+														<td className="border-b border-white/6 px-3 py-3">
+															<ChevronRight className="size-4" />
+														</td>
+														<td className="border-b border-white/6 px-3 py-3 whitespace-nowrap">
+															{log.timestamp}
+														</td>
+														<td className="border-b border-white/6 px-3 py-3">
+															<span
+																className={cn(
+																	"inline-flex rounded-md border px-2 py-1 text-xs font-medium",
+																	getLevelBadgeClass(log.level),
+																)}
+															>
+																{log.level}
+															</span>
+														</td>
+														<td className="border-b border-white/6 px-3 py-3 max-w-60 truncate">
+															{log.pod}
+														</td>
+														<td className="border-b border-white/6 px-3 py-3 whitespace-nowrap">
+															{log.service}
+														</td>
+														<td className="border-b border-white/6 px-3 py-3 max-w-[26rem] truncate">
+															{log.message}
+														</td>
+													</tr>
 												))}
 												{virtualWindow.bottomPadding > 0 ? (
 													<tr aria-hidden="true">
