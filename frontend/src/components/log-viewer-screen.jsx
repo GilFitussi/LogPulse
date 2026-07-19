@@ -25,14 +25,20 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
 import { DatasetFieldService } from "@/lib/datasetFieldService";
 import {
+	fetchClusterDeployments,
+	filterDeploymentsBySearch,
+} from "@/lib/deployments";
+import {
+	fetchClusterNamespaces,
+	filterNamespacesBySearch,
+} from "@/lib/namespaceWorkspace";
+import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { fetchClusterDeployments } from "@/lib/deployments";
 import { evaluateKqlQuery } from "@/lib/kqlEvaluator";
-import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
 import {
 	createPodLogSearch,
 	fetchPodLogSearchResults,
@@ -140,13 +146,35 @@ function DropdownControl({
 	disabled = false,
 	placeholder,
 	isLoading = false,
+	searchable = false,
+	searchPlaceholder = "Search",
+	noResultsMessage = "No matching options",
 }) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [searchText, setSearchText] = useState("");
 	const displayValue = value || placeholder;
+	const filteredOptions = useMemo(() => {
+		if (!searchable) {
+			return options;
+		}
+
+		return filterNamespacesBySearch(
+			options.map((option) => ({ name: option })),
+			searchText,
+		).map((option) => option.name);
+	}, [options, searchable, searchText]);
+	const handleOpenChange = (nextOpen) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			setSearchText("");
+		}
+	};
 
 	return (
 		<div className={cn("min-w-0 space-y-2", className)}>
 			<ControlLabel>{label}</ControlLabel>
-			<DropdownMenu>
+			<DropdownMenu open={isOpen} onOpenChange={handleOpenChange}>
 				<DropdownMenuTrigger asChild disabled={disabled}>
 					<Button
 						variant="outline"
@@ -166,21 +194,45 @@ function DropdownControl({
 						)}
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-64 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
-					{options.map((option) => (
-						<DropdownMenuItem
-							key={String(option)}
-							onSelect={() => onSelect?.(option)}
-							className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
-						>
-							<div className="flex w-full items-center justify-between gap-3">
-								<span>{option}</span>
-								{String(option) === String(value) ? (
-									<Check className="size-4 text-primary" />
-								) : null}
+				<DropdownMenuContent className="w-64 border-border/70 bg-popover p-2 text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+					{searchable ? (
+						<div className="pb-2">
+							<label htmlFor={`${label.toLowerCase()}-dropdown-search`} className="sr-only">
+								{searchPlaceholder}
+							</label>
+							<input
+								id={`${label.toLowerCase()}-dropdown-search`}
+								type="text"
+								value={searchText}
+								onChange={(event) => setSearchText(event.target.value)}
+								onKeyDown={(event) => event.stopPropagation()}
+								placeholder={searchPlaceholder}
+								className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+							/>
+						</div>
+					) : null}
+					<div className="max-h-64 overflow-y-auto">
+						{filteredOptions.length > 0 ? (
+							filteredOptions.map((option) => (
+								<DropdownMenuItem
+									key={String(option)}
+									onSelect={() => onSelect?.(option)}
+									className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+								>
+									<div className="flex w-full items-center justify-between gap-3">
+										<span className="truncate">{option}</span>
+										{String(option) === String(value) ? (
+											<Check className="size-4 shrink-0 text-primary" />
+										) : null}
+									</div>
+								</DropdownMenuItem>
+							))
+						) : (
+							<div className="px-3 py-2 text-sm text-muted-foreground">
+								{noResultsMessage}
 							</div>
-						</DropdownMenuItem>
-					))}
+						)}
+					</div>
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
@@ -332,15 +384,28 @@ function DeploymentDropdown({
 	onSelect,
 	className,
 }) {
+	const [isOpen, setIsOpen] = useState(false);
+	const [searchText, setSearchText] = useState("");
 	const hasDeployments = deployments.length > 0;
+	const filteredDeployments = useMemo(
+		() => filterDeploymentsBySearch(deployments, searchText),
+		[deployments, searchText],
+	);
 	const displayValue = isDisabled
 		? "Select namespace"
 		: selectedDeployment || "Select deployment";
+	const handleOpenChange = (nextOpen) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			setSearchText("");
+		}
+	};
 
 	return (
 		<div className={cn("min-w-0 space-y-2", className)}>
 			<ControlLabel>Deployment</ControlLabel>
-			<DropdownMenu>
+			<DropdownMenu open={isOpen} onOpenChange={handleOpenChange}>
 				<DropdownMenuTrigger asChild disabled={isDisabled}>
 					<Button
 						variant="outline"
@@ -358,7 +423,7 @@ function DeploymentDropdown({
 					</Button>
 				</DropdownMenuTrigger>
 				{!isDisabled && !isLoading ? (
-					<DropdownMenuContent className="w-64 border-border/70 bg-popover text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+					<DropdownMenuContent className="w-64 border-border/70 bg-popover p-2 text-foreground dark:border-white/10 dark:bg-[#0d1927]">
 						{error ? (
 							<>
 								<div className="px-3 py-2 text-sm text-destructive">
@@ -372,21 +437,49 @@ function DeploymentDropdown({
 								</DropdownMenuItem>
 							</>
 						) : hasDeployments ? (
-							deployments.map((deployment) => (
-								<DropdownMenuItem
-									key={deployment.name}
-									onSelect={() => onSelect?.(deployment.name)}
-									className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
-								>
-									<div className="flex w-full items-center justify-between gap-3">
-										<span className="truncate">{deployment.name}</span>
-										{deployment.name === selectedDeployment ? (
-											<Check className="size-4 text-primary" />
-										) : null}
+							<>
+								<div className="pb-2">
+									<label htmlFor="deployment-dropdown-search" className="sr-only">
+										Search deployments
+									</label>
+									<input
+										id="deployment-dropdown-search"
+										type="text"
+										value={searchText}
+										onChange={(event) => setSearchText(event.target.value)}
+										onKeyDown={(event) => event.stopPropagation()}
+										placeholder="Search deployments"
+										className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+									/>
+								</div>
+								<div className="max-h-64 overflow-y-auto">
+									{filteredDeployments.length > 0 ? (
+										filteredDeployments.map((deployment) => (
+											<DropdownMenuItem
+												key={deployment.name}
+												onSelect={() => onSelect?.(deployment.name)}
+												className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+											>
+												<div className="flex w-full items-center justify-between gap-3">
+													<span className="truncate">{deployment.name}</span>
+													{deployment.name === selectedDeployment ? (
+														<Check className="size-4 shrink-0 text-primary" />
+													) : null}
+												</div>
+											</DropdownMenuItem>
+										))
+									) : (
+										<div className="px-3 py-2 text-sm text-muted-foreground">
+											No deployments match your search
+										</div>
+									)}
 									</div>
-								</DropdownMenuItem>
-							))
-						) : null}
+							</>
+						) : (
+							<div className="px-3 py-2 text-sm text-muted-foreground">
+								No deployments found
+							</div>
+						)}
 					</DropdownMenuContent>
 				) : null}
 			</DropdownMenu>
@@ -1646,6 +1739,9 @@ export function LogViewerScreen({
 						disabled={!clusterId || namespaceOptions.length === 0}
 						isLoading={isNamespacesLoading}
 						onSelect={handleSelectNamespace}
+						searchable
+						searchPlaceholder="Search namespaces"
+						noResultsMessage="No namespaces match your search"
 					/>
 					<DeploymentDropdown
 						selectedDeployment={selectedDeployment}

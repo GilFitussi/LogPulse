@@ -68,6 +68,20 @@ export function parseDeploymentsResponse(data) {
 		.map((deployment) => ({ name: deployment.name.trim() }));
 }
 
+export function filterDeploymentsBySearch(deployments, searchText = "") {
+	const normalizedSearch = String(searchText).trim().toLowerCase();
+
+	if (!normalizedSearch) {
+		return deployments;
+	}
+
+	return deployments.filter((deployment) =>
+		String(deployment?.name || "")
+			.toLowerCase()
+			.includes(normalizedSearch),
+	);
+}
+
 export async function fetchClusterDeployments(
 	fetchImpl,
 	clusterId,
