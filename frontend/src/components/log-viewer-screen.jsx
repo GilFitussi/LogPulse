@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
 import {
 	createDefaultClusterViewerState,
+	createDefaultLogSession,
 	getClusterViewerStateOrDefault,
 	useViewerStore,
 } from "@/stores/useViewerStore";
@@ -84,6 +85,28 @@ function formatLastRefreshedAt(lastRefreshedAt) {
 		second: "2-digit",
 		hour12: false,
 	}).format(lastRefreshedAt);
+}
+
+function createLogSessionTitle({
+	deployment,
+	query,
+	filters,
+	timeRange,
+}) {
+	const normalizedQuery = String(query || "").trim();
+
+	if (normalizedQuery) {
+		return normalizedQuery.length > 28
+			? `${normalizedQuery.slice(0, 27)}...`
+			: normalizedQuery;
+	}
+
+	if (filters?.length) {
+		const [firstFilter] = filters;
+		return `${firstFilter.field}=${firstFilter.value}`;
+	}
+
+	return deployment || timeRange || "New log session";
 }
 
 function getLevelBadgeClass(level) {
@@ -773,6 +796,7 @@ export function LogViewerScreen({
 	);
 	const setSelectedPods = useViewerStore((state) => state.setSelectedPods);
 	const setQuery = useViewerStore((state) => state.setQuery);
+	const patchLogSession = useViewerStore((state) => state.patchLogSession);
 	const clusterViewerState = useViewerStore((state) => {
 		if (!clusterId) {
 			return createDefaultClusterViewerState();
@@ -794,22 +818,6 @@ export function LogViewerScreen({
 	const [filterDraftField, setFilterDraftField] = useState("");
 	const [filterDraftValue, setFilterDraftValue] = useState("");
 	const [filterFieldSearchText, setFilterFieldSearchText] = useState("");
-	const [activeStructuredFilters, setActiveStructuredFilters] = useState([]);
-	const [pageDraft, setPageDraft] = useState("1");
-	const [selectedTimeRange, setSelectedTimeRange] = useState(
-		MOCK_TIME_RANGES[0],
-	);
-	const [selectedDetailTab, setSelectedDetailTab] = useState("Document");
-	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-	const [selectedLogId, setSelectedLogId] = useState(null);
-	const [logs, setLogs] = useState([]);
-	const [isLogsLoading, setIsLogsLoading] = useState(false);
-	const [isPageLoading, setIsPageLoading] = useState(false);
-	const [logsError, setLogsError] = useState("");
-	const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
-	const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
-	const [lastRefreshDurationMs, setLastRefreshDurationMs] = useState(null);
-	const [activeSearch, setActiveSearch] = useState(null);
 	const [namespaces, setNamespaces] = useState([]);
 	const [isNamespacesLoading, setIsNamespacesLoading] = useState(false);
 	const [, setNamespacesError] = useState("");
@@ -819,16 +827,117 @@ export function LogViewerScreen({
 	const [pods, setPods] = useState([]);
 	const [isPodsLoading, setIsPodsLoading] = useState(false);
 	const [podsError, setPodsError] = useState("");
-	const [logTableScrollTop, setLogTableScrollTop] = useState(0);
 	const [logTableViewportHeight, setLogTableViewportHeight] = useState(0);
 	const logTableContainerRef = useRef(null);
 	const logTableScrollFrameRef = useRef(null);
 
 	const isConnected = isClusterConnected(cluster);
-	const selectedNamespace = clusterViewerState.selectedNamespace;
-	const selectedDeployment = clusterViewerState.selectedDeployment;
-	const selectedPods = clusterViewerState.selectedPods;
-	const queryDraft = clusterViewerState.query ?? "";
+	const activeLogSession =
+		clusterViewerState.logSessionsById?.[clusterViewerState.activeLogSessionId] ||
+		createDefaultLogSession();
+	const activeLogSessionId = activeLogSession.id;
+	const selectedNamespace = activeLogSession.selectedNamespace;
+	const selectedDeployment = activeLogSession.selectedDeployment;
+	const selectedPods = activeLogSession.selectedPods;
+	const queryDraft = activeLogSession.query ?? "";
+	const activeStructuredFilters = activeLogSession.activeStructuredFilters;
+	const pageDraft = activeLogSession.pageDraft;
+	const selectedTimeRange = activeLogSession.selectedTimeRange;
+	const selectedDetailTab = activeLogSession.selectedDetailTab;
+	const isDetailsOpen = activeLogSession.isDetailsOpen;
+	const selectedLogId = activeLogSession.selectedLogId;
+	const logs = activeLogSession.logs;
+	const isLogsLoading = activeLogSession.isLogsLoading;
+	const isPageLoading = activeLogSession.isPageLoading;
+	const logsError = activeLogSession.logsError;
+	const hasLoadedLogs = activeLogSession.hasLoadedLogs;
+	const lastRefreshedAt = activeLogSession.lastRefreshedAt;
+	const lastRefreshDurationMs = activeLogSession.lastRefreshDurationMs;
+	const activeSearch = activeLogSession.activeSearch;
+	const logTableScrollTop = activeLogSession.logTableScrollTop;
+	const patchSession = useCallback(
+		(update) => {
+			if (!clusterId || !activeLogSessionId) {
+				return;
+			}
+
+			patchLogSession(clusterId, activeLogSessionId, update);
+		},
+		[activeLogSessionId, clusterId, patchLogSession],
+	);
+	const setSessionField = useCallback(
+		(fieldName, valueOrUpdater) => {
+			patchSession((currentSession) => ({
+				[fieldName]:
+					typeof valueOrUpdater === "function"
+						? valueOrUpdater(currentSession[fieldName])
+						: valueOrUpdater,
+			}));
+		},
+		[patchSession],
+	);
+	const setSelectedTimeRange = useCallback(
+		(nextTimeRange) => setSessionField("selectedTimeRange", nextTimeRange),
+		[setSessionField],
+	);
+	const setSelectedDetailTab = useCallback(
+		(nextDetailTab) => setSessionField("selectedDetailTab", nextDetailTab),
+		[setSessionField],
+	);
+	const setPageDraft = useCallback(
+		(nextPageDraft) => setSessionField("pageDraft", nextPageDraft),
+		[setSessionField],
+	);
+	const setActiveStructuredFilters = useCallback(
+		(nextFilters) => setSessionField("activeStructuredFilters", nextFilters),
+		[setSessionField],
+	);
+	const setIsDetailsOpen = useCallback(
+		(nextIsOpen) => setSessionField("isDetailsOpen", nextIsOpen),
+		[setSessionField],
+	);
+	const setSelectedLogId = useCallback(
+		(nextLogId) => setSessionField("selectedLogId", nextLogId),
+		[setSessionField],
+	);
+	const setLogs = useCallback(
+		(nextLogs) => setSessionField("logs", nextLogs),
+		[setSessionField],
+	);
+	const setIsLogsLoading = useCallback(
+		(nextIsLoading) => setSessionField("isLogsLoading", nextIsLoading),
+		[setSessionField],
+	);
+	const setIsPageLoading = useCallback(
+		(nextIsLoading) => setSessionField("isPageLoading", nextIsLoading),
+		[setSessionField],
+	);
+	const setLogsError = useCallback(
+		(nextError) => setSessionField("logsError", nextError),
+		[setSessionField],
+	);
+	const setHasLoadedLogs = useCallback(
+		(nextHasLoadedLogs) =>
+			setSessionField("hasLoadedLogs", nextHasLoadedLogs),
+		[setSessionField],
+	);
+	const setLastRefreshedAt = useCallback(
+		(nextRefreshedAt) => setSessionField("lastRefreshedAt", nextRefreshedAt),
+		[setSessionField],
+	);
+	const setLastRefreshDurationMs = useCallback(
+		(nextDurationMs) =>
+			setSessionField("lastRefreshDurationMs", nextDurationMs),
+		[setSessionField],
+	);
+	const setActiveSearch = useCallback(
+		(nextSearch) => setSessionField("activeSearch", nextSearch),
+		[setSessionField],
+	);
+	const setLogTableScrollTop = useCallback(
+		(nextScrollTop) => setSessionField("logTableScrollTop", nextScrollTop),
+		[setSessionField],
+	);
 	const setQueryDraft = useCallback(
 		(nextQuery) => {
 			if (!clusterId) {
@@ -1243,6 +1352,10 @@ export function LogViewerScreen({
 		};
 	}, []);
 
+	useEffect(() => {
+		logTableContainerRef.current?.scrollTo({ top: logTableScrollTop });
+	}, [activeLogSessionId, logTableScrollTop]);
+
 	const handleSelectDeployment = (value) => {
 		if (!clusterId) {
 			return;
@@ -1331,6 +1444,14 @@ export function LogViewerScreen({
 				deployment: selectedDeployment,
 				filters: structuredFilters,
 				fields: response.fields,
+			});
+			patchSession({
+				title: createLogSessionTitle({
+					deployment: selectedDeployment,
+					query: searchQuery,
+					filters: structuredFilters,
+					timeRange: selectedTimeRange,
+				}),
 			});
 			setSelectedLogId((currentSelectedLogId) =>
 				response.logs.some((log) => log.id === currentSelectedLogId)
@@ -1483,10 +1604,10 @@ export function LogViewerScreen({
 	const handleSelectLog = useCallback((logId) => {
 		setSelectedLogId(logId);
 		setIsDetailsOpen(true);
-	}, []);
+	}, [setIsDetailsOpen, setSelectedLogId]);
 	const handleCloseDetails = useCallback(() => {
 		setIsDetailsOpen(false);
-	}, []);
+	}, [setIsDetailsOpen]);
 
 	const handleLogTableScroll = useCallback((event) => {
 		const nextScrollTop = event.currentTarget.scrollTop;
@@ -1498,7 +1619,7 @@ export function LogViewerScreen({
 		logTableScrollFrameRef.current = requestAnimationFrame(() => {
 			setLogTableScrollTop(nextScrollTop);
 		});
-	}, []);
+	}, [setLogTableScrollTop]);
 
 	const togglePod = (pod) => {
 		if (!clusterId) {
