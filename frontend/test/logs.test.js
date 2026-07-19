@@ -266,6 +266,20 @@ test("createPodLogSearch posts the initial search and returns the first batch", 
 				totalCount: 1200,
 				hasMore: true,
 				nextOffset: 500,
+				fields: [
+					{
+						name: "log.level",
+						filterable: true,
+						kqlSearchable: true,
+						values: [{ value: "INFO", count: 1 }],
+					},
+					{
+						name: "message",
+						filterable: false,
+						kqlSearchable: true,
+						values: [{ value: "started", count: 1 }],
+					},
+				],
 				logs: [
 					{
 						id: "entry-1",
@@ -306,6 +320,17 @@ test("createPodLogSearch posts the initial search and returns the first batch", 
 	assert.equal(result.searchSessionId, "session-1");
 	assert.equal(result.logs.length, 1);
 	assert.equal(result.logs[0].service, "payments-api");
+	assert.deepEqual(
+		result.fields.map(({ name, filterable, kqlSearchable }) => ({
+			name,
+			filterable,
+			kqlSearchable,
+		})),
+		[
+			{ name: "log.level", filterable: true, kqlSearchable: true },
+			{ name: "message", filterable: false, kqlSearchable: true },
+		],
+	);
 	assert.deepEqual(calls, [
 		{
 			url: "http://localhost:3000/api/clusters/9/namespaces/payments%20prod/log-searches",

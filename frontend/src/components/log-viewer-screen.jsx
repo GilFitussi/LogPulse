@@ -492,7 +492,7 @@ function getCurrentTimeMs() {
 	return performance.now();
 }
 
-function KqlHelpDialog() {
+function KqlHelpDialog({ fields = [] }) {
 	const examples = [
 		{
 			label: "Free text",
@@ -535,6 +535,7 @@ function KqlHelpDialog() {
 			description: "Matches timestamp text such as date or ISO values.",
 		},
 	];
+	const kqlFields = fields.filter((field) => field.kqlSearchable !== false);
 
 	return (
 		<Dialog.Root>
@@ -591,6 +592,23 @@ function KqlHelpDialog() {
 							logs in the selected search scope. Run Search to apply query
 							changes.
 						</div>
+						{kqlFields.length > 0 ? (
+							<div className="mt-3 rounded-lg border border-border/70 bg-background/70 p-3 dark:border-white/8 dark:bg-[#091523]">
+								<div className="text-xs font-medium text-muted-foreground">
+									Available fields
+								</div>
+								<div className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-auto">
+									{kqlFields.map((field) => (
+										<code
+											key={field.name}
+											className="rounded-md bg-muted px-2 py-1 text-xs text-foreground dark:bg-white/[0.04]"
+										>
+											{field.name}
+										</code>
+									))}
+								</div>
+							</div>
+						) : null}
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>
@@ -848,7 +866,10 @@ export function LogViewerScreen({
 				: discoverSearchableFilterFields(logs),
 		[activeSearch, logs],
 	);
-	const searchableFilterFields = datasetFields;
+	const searchableFilterFields = useMemo(
+		() => datasetFields.filter((field) => field.filterable !== false),
+		[datasetFields],
+	);
 	const filteredFilterFields = useMemo(() => {
 		const normalizedSearch = filterFieldSearchText.trim().toLowerCase();
 
@@ -1549,7 +1570,7 @@ export function LogViewerScreen({
 										className="h-10 w-full rounded-lg border border-primary/60 bg-background/80 pl-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
 									/>
 									<div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-										<KqlHelpDialog />
+										<KqlHelpDialog fields={datasetFields} />
 										<button
 											type="button"
 											onClick={() => setQueryDraft("")}
@@ -1579,7 +1600,7 @@ export function LogViewerScreen({
 									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
 										{searchableFilterFields.length === 0 ? (
 											<div className="rounded-md border border-border/70 bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
-												No searchable fields found in this dataset.
+												No filterable fields found in this search.
 											</div>
 										) : (
 											<div className="grid gap-2">

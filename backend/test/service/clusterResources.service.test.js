@@ -471,6 +471,28 @@ describe("cluster resources service", () => {
 				},
 			],
 		});
+		expect(result.fields).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "log.level",
+					filterable: true,
+					kqlSearchable: true,
+				}),
+				expect.objectContaining({
+					name: "message",
+					filterable: false,
+					kqlSearchable: true,
+				}),
+				expect.objectContaining({
+					name: "statusCode",
+					filterable: true,
+					kqlSearchable: true,
+				}),
+			]),
+		);
+		expect(result.fields.map((field) => field.name)).not.toEqual(
+			expect.arrayContaining(["log", "timestamp"]),
+		);
 		Date.now.mockRestore();
 	});
 

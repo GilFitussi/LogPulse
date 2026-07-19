@@ -592,6 +592,73 @@ function normalizeFieldValue(value) {
 	return typeof value === "string" ? value.trim() : String(value);
 }
 
+const HIDDEN_FIELD_NAMES = new Set([
+	"@timestamp",
+	"id",
+	"log",
+	"order",
+	"parsedtimestamp",
+	"rawline",
+	"timestamp",
+]);
+const NON_FILTERABLE_FIELD_NAMES = new Set(["message"]);
+const CORE_FIELD_ORDER = [
+	"log.level",
+	"level",
+	"statusCode",
+	"service.name",
+	"namespace",
+	"podName",
+	"kubernetes.pod.name",
+	"kubernetes.namespace_name",
+	"kubernetes.deployment.name",
+	"method",
+	"path",
+	"route",
+	"requestId",
+	"traceId",
+	"spanId",
+	"userId",
+	"user.id",
+];
+const CORE_FIELD_RANK = new Map(
+	CORE_FIELD_ORDER.map((fieldName, index) => [normalizeFieldName(fieldName), index]),
+);
+const MAX_FILTER_VALUE_LENGTH = 120;
+const MAX_KQL_VALUE_LENGTH = 500;
+const MAX_FILTER_UNIQUE_VALUES = 100;
+const MAX_RETURNED_FIELD_VALUES = 100;
+
+function getMaxValueLength(field) {
+	return Array.from(field.values.keys()).reduce(
+		(maxLength, value) => Math.max(maxLength, String(value).length),
+		0,
+	);
+}
+
+function classifyDiscoveredField(field) {
+	const normalizedName = normalizeFieldName(field.name);
+	const isHidden = HIDDEN_FIELD_NAMES.has(normalizedName);
+	const uniqueValueCount = field.values.size;
+	const maxValueLength = getMaxValueLength(field);
+	const isCoreField = CORE_FIELD_RANK.has(normalizedName);
+	const isShortEnoughForFilter = maxValueLength <= MAX_FILTER_VALUE_LENGTH;
+	const isShortEnoughForKql = maxValueLength <= MAX_KQL_VALUE_LENGTH;
+	const hasReasonableCardinality =
+		isCoreField || uniqueValueCount <= MAX_FILTER_UNIQUE_VALUES;
+	const filterable =
+		!isHidden &&
+		!NON_FILTERABLE_FIELD_NAMES.has(normalizedName) &&
+		isShortEnoughForFilter &&
+		hasReasonableCardinality;
+
+	return {
+		filterable,
+		kqlSearchable: !isHidden && isShortEnoughForKql,
+		hidden: isHidden,
+	};
+}
+
 function addDiscoveryValue(fieldsByName, fieldName, value) {
 	if (!fieldName || !isSearchableValue(value)) {
 		return;
@@ -682,14 +749,36 @@ function discoverLogFields(logs) {
 	}
 
 	return Array.from(fieldsByName.values())
-		.map((field) => ({
-			name: field.name,
-			count: field.count,
-			values: Array.from(field.values.entries())
-				.map(([value, count]) => ({ value, count }))
-				.sort(compareDiscoveredValues),
-		}))
-		.sort((left, right) => left.name.localeCompare(right.name));
+		.map((field) => {
+			const classification = classifyDiscoveredField(field);
+
+			return {
+				name: field.name,
+				count: field.count,
+				...classification,
+				values: Array.from(field.values.entries())
+					.map(([value, count]) => ({ value, count }))
+					.sort(compareDiscoveredValues)
+					.slice(0, MAX_RETURNED_FIELD_VALUES),
+			};
+		})
+		.filter((field) => !field.hidden && field.kqlSearchable)
+		.sort((left, right) => {
+			const leftRank =
+				CORE_FIELD_RANK.get(normalizeFieldName(left.name)) ?? Number.MAX_SAFE_INTEGER;
+			const rightRank =
+				CORE_FIELD_RANK.get(normalizeFieldName(right.name)) ?? Number.MAX_SAFE_INTEGER;
+
+			if (leftRank !== rightRank) {
+				return leftRank - rightRank;
+			}
+
+			if (left.filterable !== right.filterable) {
+				return left.filterable ? -1 : 1;
+			}
+
+			return left.name.localeCompare(right.name);
+		});
 }
 
 module.exports = {

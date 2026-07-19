@@ -358,6 +358,8 @@ export function parsePodLogSearchResponse(data, metadata = {}) {
 					.map((field) => ({
 						name: field.name.trim(),
 						type: "keyword",
+						filterable: field.filterable !== false,
+						kqlSearchable: field.kqlSearchable !== false,
 						sampleValues: (field.values ?? [])
 							.map((entry) => String(entry?.value ?? "").trim())
 							.filter(Boolean)
