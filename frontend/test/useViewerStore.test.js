@@ -24,6 +24,7 @@ test("createDefaultClusterViewerState returns the expected serializable defaults
 		selectedDeployment: null,
 		selectedPods: [],
 		selectedContainer: null,
+		query: "",
 		openPodTabs: [],
 		activeTabId: null,
 		tabLogState: {},
@@ -191,11 +192,47 @@ test("setSelectedDeployment clears selected pods for the targeted cluster", () =
 	});
 });
 
+test("setQuery stores the current query for the targeted cluster", () => {
+	useViewerStore.getState().setQuery("cluster-a", "level:error");
+	useViewerStore.getState().setQuery("cluster-b", "statusCode:500");
+
+	assert.deepEqual(useViewerStore.getState().viewerStateByCluster, {
+		"cluster-a": {
+			...createDefaultClusterViewerState(),
+			query: "level:error",
+		},
+		"cluster-b": {
+			...createDefaultClusterViewerState(),
+			query: "statusCode:500",
+		},
+	});
+});
+
+test("setQuery normalizes empty values without clearing the loaded dataset scope", () => {
+	useViewerStore.getState().patchClusterState("cluster-a", {
+		selectedNamespace: "payments-prod",
+		selectedDeployment: "api",
+		selectedPods: ["api-123"],
+		query: "level:error",
+	});
+
+	useViewerStore.getState().setQuery("cluster-a", null);
+
+	assert.deepEqual(useViewerStore.getState().viewerStateByCluster["cluster-a"], {
+		...createDefaultClusterViewerState(),
+		selectedNamespace: "payments-prod",
+		selectedDeployment: "api",
+		selectedPods: ["api-123"],
+		query: "",
+	});
+});
+
 test("viewer state survives app-level back navigation because store state is independent of currentView", () => {
 	useViewerStore.getState().patchClusterState("cluster-a", {
 		selectedNamespace: "default",
 		selectedPods: ["api-123"],
 		activeTabId: "pod-a-1",
+		query: "level:error AND statusCode:500",
 	});
 
 	const beforeBackNavigation = structuredClone(
@@ -208,5 +245,9 @@ test("viewer state survives app-level back navigation because store state is ind
 	assert.deepEqual(
 		useViewerStore.getState().viewerStateByCluster,
 		beforeBackNavigation,
+	);
+	assert.equal(
+		useViewerStore.getState().viewerStateByCluster["cluster-a"].query,
+		"level:error AND statusCode:500",
 	);
 });
