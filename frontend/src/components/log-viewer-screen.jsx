@@ -1708,66 +1708,6 @@ export function LogViewerScreen({
 									</div>
 								) : null}
 							</div>
-							<div className="relative shrink-0">
-								<Button
-									variant="ghost"
-									className="h-8 px-2 text-xs text-primary hover:bg-transparent hover:text-primary/80"
-									disabled={!canOpenFilterDialog}
-									onClick={() => setIsFilterPopoverOpen((current) => !current)}
-								>
-									+ Add field filter
-								</Button>
-								{isFilterPopoverOpen ? (
-									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
-										{searchableFilterFields.length === 0 ? (
-											<div className="rounded-md border border-border/70 bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
-												No filterable fields found in this search.
-											</div>
-										) : (
-											<div className="grid gap-2">
-												<FilterFieldDropdown
-													value={selectedFilterFieldName}
-													fields={filteredFilterFields}
-													selectedField={selectedFilterField}
-													searchText={filterFieldSearchText}
-													onSearchTextChange={setFilterFieldSearchText}
-													onSelect={setFilterDraftField}
-												/>
-												<div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
-													<div className="space-y-1">
-														<ControlLabel>Operator</ControlLabel>
-														<div className="flex h-8 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-[0.8rem] text-muted-foreground dark:border-white/10 dark:bg-white/[0.03]">
-															equals
-														</div>
-													</div>
-													<FilterValueDropdown
-														value={resolvedFilterDraftValue}
-														values={selectedFilterValues}
-														onSelect={setFilterDraftValue}
-														disabled={selectedFilterValues.length === 0}
-													/>
-												</div>
-												<div className="flex justify-end gap-2 pt-1">
-													<Button
-														variant="ghost"
-														className="h-8 px-2 text-xs"
-														onClick={() => setIsFilterPopoverOpen(false)}
-													>
-														Cancel
-													</Button>
-													<Button
-														className="h-8 px-3 text-xs"
-														disabled={!canApplyStructuredFilter}
-														onClick={handleAddStructuredFilter}
-													>
-														Apply
-													</Button>
-												</div>
-											</div>
-										)}
-									</div>
-								) : null}
-							</div>
 							<Button
 								className="h-8 shrink-0 rounded-md px-3"
 								disabled={!canSearch}
@@ -1781,11 +1721,11 @@ export function LogViewerScreen({
 								Search
 							</Button>
 						</div>
-						{activeStructuredFilters.length > 0 ? (
-							<div className="mt-2 flex flex-wrap items-center gap-2">
-								<span className="shrink-0 text-xs font-medium text-muted-foreground">
-									Field filters
-								</span>
+						<div className="mt-2 flex flex-wrap items-center gap-2">
+							<span className="shrink-0 text-xs font-medium text-muted-foreground">
+								Field filters
+							</span>
+							{activeStructuredFilters.length > 0 ? (
 								<div className="flex min-w-0 flex-wrap items-center gap-2">
 									{activeStructuredFilters.map((filter) => (
 										<span
@@ -1805,16 +1745,79 @@ export function LogViewerScreen({
 											</button>
 										</span>
 									))}
+								</div>
+							) : null}
+							<div className="flex shrink-0 items-center gap-2">
+								<div className="relative">
 									<Button
 										variant="ghost"
-										className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-										onClick={handleClearStructuredFilters}
+										className="h-7 px-2 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+										disabled={!canOpenFilterDialog}
+										onClick={() => setIsFilterPopoverOpen((current) => !current)}
 									>
-										Clear all
+										+ Add field filter
 									</Button>
+									{isFilterPopoverOpen ? (
+										<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
+											{searchableFilterFields.length === 0 ? (
+												<div className="rounded-md border border-border/70 bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
+													No filterable fields found in this search.
+												</div>
+											) : (
+												<div className="grid gap-2">
+													<FilterFieldDropdown
+														value={selectedFilterFieldName}
+														fields={filteredFilterFields}
+														selectedField={selectedFilterField}
+														searchText={filterFieldSearchText}
+														onSearchTextChange={setFilterFieldSearchText}
+														onSelect={setFilterDraftField}
+													/>
+													<div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+														<div className="space-y-1">
+															<ControlLabel>Operator</ControlLabel>
+															<div className="flex h-8 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-[0.8rem] text-muted-foreground dark:border-white/10 dark:bg-white/[0.03]">
+																equals
+															</div>
+														</div>
+														<FilterValueDropdown
+															value={resolvedFilterDraftValue}
+															values={selectedFilterValues}
+															onSelect={setFilterDraftValue}
+															disabled={selectedFilterValues.length === 0}
+														/>
+													</div>
+													<div className="flex justify-end gap-2 pt-1">
+														<Button
+															variant="ghost"
+															className="h-8 px-2 text-xs"
+															onClick={() => setIsFilterPopoverOpen(false)}
+														>
+															Cancel
+														</Button>
+														<Button
+															className="h-8 px-3 text-xs"
+															disabled={!canApplyStructuredFilter}
+															onClick={handleAddStructuredFilter}
+														>
+															Apply
+														</Button>
+													</div>
+												</div>
+											)}
+										</div>
+									) : null}
 								</div>
+								<Button
+									variant="ghost"
+									className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+									disabled={activeStructuredFilters.length === 0}
+									onClick={handleClearStructuredFilters}
+								>
+									Clear all
+								</Button>
 							</div>
-						) : null}
+						</div>
 					</section>
 
 					<div
