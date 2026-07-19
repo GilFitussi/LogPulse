@@ -715,6 +715,7 @@ export function LogViewerScreen({
 		(state) => state.setSelectedDeployment,
 	);
 	const setSelectedPods = useViewerStore((state) => state.setSelectedPods);
+	const setQuery = useViewerStore((state) => state.setQuery);
 	const clusterViewerState = useViewerStore((state) => {
 		if (!clusterId) {
 			return createDefaultClusterViewerState();
@@ -732,8 +733,6 @@ export function LogViewerScreen({
 		}
 	}, [clusterId, ensureClusterState]);
 
-	const initialQuery = "";
-	const [queryDraft, setQueryDraft] = useState(initialQuery);
 	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 	const [filterDraftField, setFilterDraftField] = useState("");
 	const [filterDraftOperator, setFilterDraftOperator] = useState(
@@ -774,6 +773,20 @@ export function LogViewerScreen({
 	const selectedNamespace = clusterViewerState.selectedNamespace;
 	const selectedDeployment = clusterViewerState.selectedDeployment;
 	const selectedPods = clusterViewerState.selectedPods;
+	const queryDraft = clusterViewerState.query ?? "";
+	const setQueryDraft = useCallback(
+		(nextQuery) => {
+			if (!clusterId) {
+				return;
+			}
+
+			const resolvedQuery =
+				typeof nextQuery === "function" ? nextQuery(queryDraft) : nextQuery;
+
+			setQuery(clusterId, resolvedQuery);
+		},
+		[clusterId, queryDraft, setQuery],
+	);
 	const deferredQueryDraft = useDeferredValue(queryDraft);
 	const queryEvaluation = useMemo(
 		() => evaluateKqlQuery(logs, deferredQueryDraft),
@@ -852,7 +865,7 @@ export function LogViewerScreen({
 		!isLoadingMoreLogs;
 	const activeTimeRangeLabel =
 		activeSearch?.timeRangeLabel ?? selectedTimeRange;
-	const totalLoadedLogCount = activeSearch?.totalCount ?? logs.length;
+	const totalAvailableLogCount = activeSearch?.totalCount ?? logs.length;
 	const loadedLogsSummary = useMemo(() => {
 		if (!hasLoadedLogs) {
 			return `Showing logs from ${activeTimeRangeLabel.toLowerCase()}`;
@@ -863,12 +876,12 @@ export function LogViewerScreen({
 				? ` (capped at ${MAX_LOG_DATASET_SIZE.toLocaleString()})`
 				: "";
 
-		return `Loaded ${logs.length.toLocaleString()} of ${totalLoadedLogCount.toLocaleString()} logs${capSummary}`;
+		return `Loaded ${logs.length.toLocaleString()} of ${totalAvailableLogCount.toLocaleString()} logs${capSummary}`;
 	}, [
 		activeTimeRangeLabel,
 		hasLoadedLogs,
 		logs.length,
-		totalLoadedLogCount,
+		totalAvailableLogCount,
 		trimmedLogCount,
 	]);
 
@@ -1699,7 +1712,8 @@ export function LogViewerScreen({
 
 					<div className="flex items-center gap-6">
 						<span>
-							Showing: {queryResults.length} / {totalLoadedLogCount} logs
+							Showing {queryResults.length.toLocaleString()} of{" "}
+							{logs.length.toLocaleString()} logs
 						</span>
 						<span>
 							{lastRefreshDurationMs === null

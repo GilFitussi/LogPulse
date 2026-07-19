@@ -6,6 +6,7 @@ export function createDefaultClusterViewerState() {
 		selectedDeployment: null,
 		selectedPods: [],
 		selectedContainer: null,
+		query: "",
 		openPodTabs: [],
 		activeTabId: null,
 		tabLogState: {},
@@ -132,6 +133,11 @@ export const useViewerStore = create((set, get) => ({
 	setSelectedContainer: (clusterId, container) => {
 		return get().patchClusterState(clusterId, {
 			selectedContainer: container,
+		});
+	},
+	setQuery: (clusterId, query) => {
+		return get().patchClusterState(clusterId, {
+			query: String(query ?? ""),
 		});
 	},
 	setOpenPodTabs: (clusterId, openPodTabs) => {
