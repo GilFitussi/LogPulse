@@ -23,6 +23,26 @@ function normalizeSampleValue(value) {
 	return String(value);
 }
 
+function isDateFieldName(fieldName) {
+	return /(^|[._-])(timestamp|time|date|datetime|createdat|updatedat)$/i.test(
+		fieldName,
+	);
+}
+
+function isDateLikeValue(value) {
+	if (typeof value !== "string" || !value.trim()) {
+		return false;
+	}
+
+	const normalizedValue = value.trim();
+
+	if (!/\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(normalizedValue)) {
+		return false;
+	}
+
+	return !Number.isNaN(Date.parse(normalizedValue.replace(/,(\d{3,})/, ".$1")));
+}
+
 function addFieldValue(fieldsByName, name, value, sampleValueLimit) {
 	if (!name || !isSearchableValue(value)) {
 		return;
@@ -85,6 +105,13 @@ function flattenRecord(value, fieldsByName, options, path = "") {
 function inferFieldType(field, options) {
 	if (field.name === "message") {
 		return "text";
+	}
+
+	if (
+		isDateFieldName(field.name) ||
+		field.sampleValues.some((value) => isDateLikeValue(value))
+	) {
+		return "date";
 	}
 
 	const hasRepeatedValues = field.count > field.uniqueValues.size;

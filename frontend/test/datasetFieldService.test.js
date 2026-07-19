@@ -75,3 +75,16 @@ test("discovers searchable values inside arrays without hardcoded fields", () =>
 		{ name: "labels", type: "keyword", sampleValues: ["blue", "green"] },
 	]);
 });
+
+test("classifies timestamp-like fields as date fields", () => {
+	const fields = DatasetFieldService.discoverFields([
+		{
+			"@timestamp": "2026-07-19T12:30:00.000Z",
+			createdAt: "2026-07-19T12:31:00.000Z",
+			message: "started",
+		},
+	]);
+
+	assert.equal(fields.find((field) => field.name === "@timestamp").type, "date");
+	assert.equal(fields.find((field) => field.name === "createdAt").type, "date");
+});
