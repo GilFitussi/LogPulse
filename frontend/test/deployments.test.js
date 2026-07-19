@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
 	fetchClusterDeployments,
+	filterDeploymentsBySearch,
 	getDeploymentsApiErrorMessage,
 	parseDeploymentsResponse,
 } from "../src/lib/deployments.js";
@@ -21,6 +22,24 @@ test("parseDeploymentsResponse trims valid deployment names and ignores invalid 
 		}),
 		[{ name: "api" }, { name: "worker" }],
 	);
+});
+
+test("filterDeploymentsBySearch returns all deployments when search is empty", () => {
+	const deployments = [{ name: "api" }, { name: "worker" }];
+
+	assert.equal(filterDeploymentsBySearch(deployments, ""), deployments);
+});
+
+test("filterDeploymentsBySearch matches deployment names case-insensitively", () => {
+	const deployments = [
+		{ name: "api" },
+		{ name: "Billing-Worker" },
+		{ name: "frontend" },
+	];
+
+	assert.deepEqual(filterDeploymentsBySearch(deployments, "  worker "), [
+		{ name: "Billing-Worker" },
+	]);
 });
 
 test("getDeploymentsApiErrorMessage prefers nested backend details", () => {
