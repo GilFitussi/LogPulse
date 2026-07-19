@@ -427,7 +427,7 @@ describe("cluster resources service", () => {
 			log: jest.fn().mockImplementation(async (_namespace, _podName, _containerName, stream) => {
 				stream.end(
 					[
-						'2026-06-04T14:59:00.000Z {"level":"error","message":"connection failed","statusCode":500}',
+						'2026-06-04T14:59:00.000Z {"level":"debug","message":"connection failed","statusCode":500}',
 						'2026-06-04T14:58:00.000Z {"level":"info","message":"connection failed","statusCode":200}',
 						'2026-06-04T14:57:00.000Z {"level":"error","message":"cache failed","statusCode":500}',
 						'2026-06-04T14:56:00.000Z {"level":"error","message":"connection failed","statusCode":503}',
@@ -447,7 +447,7 @@ describe("cluster resources service", () => {
 			podNames: ["api-123"],
 			sinceSeconds: 900,
 			limit: 1,
-			query: "message:connection AND statusCode = 500",
+			query: 'message:connection AND statusCode = 500 AND log.level:"DEBUG"',
 			filters: [
 				{
 					field: "statusCode",
@@ -466,7 +466,7 @@ describe("cluster resources service", () => {
 				{
 					podName: "api-123",
 					namespace: "apps",
-					level: "ERROR",
+					level: "DEBUG",
 					message: "connection failed",
 				},
 			],

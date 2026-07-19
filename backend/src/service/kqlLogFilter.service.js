@@ -498,6 +498,10 @@ function createFieldMap(log) {
 		addFieldValue(fieldsByName, "namespace", log.namespace);
 	}
 
+	if (log?.level !== undefined) {
+		addFieldValue(fieldsByName, "log.level", log.level);
+	}
+
 	return fieldsByName;
 }
 
@@ -663,6 +667,7 @@ function createDiscoveryRecord(log) {
 		...(jsonPayload && typeof jsonPayload === "object" ? jsonPayload : {}),
 		message: log?.message,
 		level: log?.level,
+		"log.level": log?.level,
 		namespace: log?.namespace,
 		podName: log?.podName,
 		log: log?.rawLine,
