@@ -1,9 +1,27 @@
-import { Activity, Search } from "lucide-react";
+import {
+	Activity,
+	Check,
+	ChevronDown,
+	Plus,
+	Search,
+	X,
+} from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { APP_VIEWS } from "@/lib/viewerNavigation";
+import {
+	createDefaultClusterViewerState,
+	getClusterViewerStateOrDefault,
+	useViewerStore,
+} from "@/stores/useViewerStore";
 
 export function ToolbarSection({
 	children,
@@ -75,10 +93,184 @@ function ProductNavTab({ isActive, disabled, onClick, children }) {
 	);
 }
 
+function formatSessionUpdatedAt(updatedAt) {
+	if (!updatedAt) {
+		return "Not updated";
+	}
+
+	return new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	}).format(new Date(updatedAt));
+}
+
+function getSessionSummary(session) {
+	if (session.activeSearch?.totalCount !== undefined) {
+		return `${session.activeSearch.totalCount.toLocaleString()} logs`;
+	}
+
+	if (session.logs?.length) {
+		return `${session.logs.length.toLocaleString()} logs`;
+	}
+
+	return "No snapshot";
+}
+
+function LogSessionSwitcher({ cluster, disabled = false }) {
+	const clusterId = cluster?.id ?? null;
+	const clusterViewerState = useViewerStore((state) => {
+		if (!clusterId) {
+			return createDefaultClusterViewerState();
+		}
+
+		return getClusterViewerStateOrDefault(
+			state.viewerStateByCluster,
+			clusterId,
+		);
+	});
+	const createLogSession = useViewerStore((state) => state.createLogSession);
+	const setActiveLogSession = useViewerStore(
+		(state) => state.setActiveLogSession,
+	);
+	const closeLogSession = useViewerStore((state) => state.closeLogSession);
+
+	const sessions = clusterViewerState.logSessionOrder
+		.map((sessionId) => clusterViewerState.logSessionsById[sessionId])
+		.filter(Boolean);
+	const activeSession =
+		clusterViewerState.logSessionsById[clusterViewerState.activeLogSessionId] ||
+		sessions[0];
+
+	const handleCreateSession = () => {
+		if (!clusterId) {
+			return;
+		}
+
+		createLogSession(clusterId, {
+			title: "New log session",
+			selectedNamespace: activeSession?.selectedNamespace ?? null,
+		});
+	};
+
+	if (!clusterId) {
+		return null;
+	}
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild disabled={disabled}>
+				<button
+					type="button"
+					className={cn(
+						"flex h-10 min-w-0 max-w-72 items-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 text-[0.8rem] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+						"border-primary text-foreground",
+						disabled &&
+							"cursor-not-allowed text-muted-foreground/50 hover:text-muted-foreground/50",
+					)}
+				>
+					<span className="shrink-0">Log Viewer:</span>
+					<span className="min-w-0 truncate">
+						{activeSession?.title || "New log session"}
+					</span>
+					<span className="rounded-full border border-border/70 px-1.5 text-[10px] text-muted-foreground dark:border-white/10">
+						{sessions.length}
+					</span>
+					<ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				className="w-[25rem] border-border/70 bg-popover p-2 text-foreground dark:border-white/10 dark:bg-[#0d1927]"
+			>
+				<div className="flex items-center justify-between gap-3 px-2 pb-2">
+					<div className="min-w-0">
+						<div className="text-xs font-semibold text-foreground">
+							Log sessions
+						</div>
+						<div className="truncate text-[11px] text-muted-foreground">
+							{cluster?.name || "Current workspace"}
+						</div>
+					</div>
+					<Button
+						type="button"
+						variant="ghost"
+						className="h-7 shrink-0 px-2 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+						onClick={handleCreateSession}
+					>
+						<Plus className="size-3.5" />
+						New session
+					</Button>
+				</div>
+				<div className="max-h-80 overflow-y-auto">
+					{sessions.map((session) => {
+						const isActive = session.id === activeSession?.id;
+						const scope =
+							[session.selectedNamespace, session.selectedDeployment]
+								.filter(Boolean)
+								.join(" / ") || "No scope selected";
+
+						return (
+							<DropdownMenuItem
+								key={session.id}
+								onSelect={() => setActiveLogSession(clusterId, session.id)}
+								className="cursor-pointer rounded-md px-2 py-2 focus:bg-muted dark:focus:bg-white/8"
+							>
+								<div className="flex w-full min-w-0 items-start gap-2">
+									<span
+										className={cn(
+											"mt-1.5 size-2 rounded-full",
+											isActive ? "bg-primary" : "bg-muted-foreground/50",
+										)}
+									/>
+									<div className="min-w-0 flex-1">
+										<div className="flex min-w-0 items-center gap-2">
+											<span className="truncate text-sm font-medium">
+												{session.title}
+											</span>
+											{isActive ? (
+												<Check className="size-3.5 shrink-0 text-primary" />
+											) : null}
+										</div>
+										<div className="truncate text-[11px] text-muted-foreground">
+											{scope}
+										</div>
+										<div className="mt-0.5 flex min-w-0 items-center gap-3 text-[11px] text-muted-foreground">
+											<span>{formatSessionUpdatedAt(session.lastRefreshedAt)}</span>
+											<span>{getSessionSummary(session)}</span>
+										</div>
+									</div>
+									{sessions.length > 1 ? (
+										<button
+											type="button"
+											className="mt-0.5 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+											aria-label={`Close ${session.title}`}
+											onClick={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												closeLogSession(clusterId, session.id);
+											}}
+										>
+											<X className="size-3.5" />
+										</button>
+									) : null}
+								</div>
+							</DropdownMenuItem>
+						);
+					})}
+				</div>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 export function TopToolbar({
 	currentView = APP_VIEWS.WORKSPACES,
 	onChangeView,
 	canAccessViewer = false,
+	selectedCluster = null,
 }) {
 	return (
 		<header className="sticky top-0 z-30 border-b border-toolbar-border bg-toolbar text-foreground backdrop-blur">
@@ -100,13 +292,20 @@ export function TopToolbar({
 						>
 							Workspaces
 						</ProductNavTab>
-						<ProductNavTab
-							isActive={currentView === APP_VIEWS.VIEWER}
-							disabled={!canAccessViewer}
-							onClick={() => onChangeView?.(APP_VIEWS.VIEWER)}
-						>
-							Log Viewer
-						</ProductNavTab>
+						{currentView === APP_VIEWS.VIEWER ? (
+							<LogSessionSwitcher
+								cluster={selectedCluster}
+								disabled={!canAccessViewer}
+							/>
+						) : (
+							<ProductNavTab
+								isActive={false}
+								disabled={!canAccessViewer}
+								onClick={() => onChangeView?.(APP_VIEWS.VIEWER)}
+							>
+								Log Viewer
+							</ProductNavTab>
+						)}
 					</nav>
 				</div>
 

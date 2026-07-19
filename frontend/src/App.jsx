@@ -264,6 +264,7 @@ function App() {
 				currentView={currentView}
 				onChangeView={handleChangeView}
 				canAccessViewer={canOpenViewer(selectedCluster)}
+				selectedCluster={selectedCluster}
 			/>
 			<PageContainer
 				className={
