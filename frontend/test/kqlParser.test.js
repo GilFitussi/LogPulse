@@ -27,6 +27,15 @@ test("parseKqlQuery parses simple field queries with normalized field names", ()
 	});
 });
 
+test("parseKqlQuery parses equals field queries", () => {
+	assert.deepEqual(parseKqlQuery("statusCode = 500").ast, {
+		type: "field",
+		field: "statuscode",
+		value: "500",
+		position: 0,
+	});
+});
+
 test("parseKqlQuery parses quoted field values with spaces", () => {
 	assert.deepEqual(parseKqlQuery('message:"connection failed"').ast, {
 		type: "field",

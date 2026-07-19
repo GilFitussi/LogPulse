@@ -396,6 +396,16 @@ export async function createPodLogSearch(
 	apiBaseUrl,
 	options = {},
 ) {
+	const requestOptions = {
+		...options,
+		filters: Array.isArray(options.filters)
+			? options.filters.map((filter) => ({
+					field: filter.field,
+					operator: filter.operator,
+					value: filter.value,
+				}))
+			: options.filters,
+	};
 	const response = await fetchImpl(
 		`${apiBaseUrl}/api/clusters/${clusterId}/namespaces/${encodeURIComponent(namespace)}/log-searches`,
 		{
@@ -403,7 +413,7 @@ export async function createPodLogSearch(
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify(options),
+			body: JSON.stringify(requestOptions),
 		},
 	);
 	const data = await response.json().catch(() => ({}));

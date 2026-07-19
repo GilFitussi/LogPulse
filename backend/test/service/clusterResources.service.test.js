@@ -447,7 +447,7 @@ describe("cluster resources service", () => {
 			podNames: ["api-123"],
 			sinceSeconds: 900,
 			limit: 1,
-			query: "message:connection",
+			query: "message:connection AND statusCode = 500",
 			filters: [
 				{
 					field: "statusCode",

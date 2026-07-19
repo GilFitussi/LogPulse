@@ -294,6 +294,7 @@ test("createPodLogSearch posts the initial search and returns the first batch", 
 			query: "message:failed",
 			filters: [
 				{
+					id: "statuscode=500",
 					field: "statusCode",
 					operator: "equals",
 					value: "500",

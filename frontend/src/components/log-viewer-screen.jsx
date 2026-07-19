@@ -777,6 +777,7 @@ export function LogViewerScreen({
 	const [filterDraftValue, setFilterDraftValue] = useState("");
 	const [filterFieldSearchText, setFilterFieldSearchText] = useState("");
 	const [activeStructuredFilters, setActiveStructuredFilters] = useState([]);
+	const [pageDraft, setPageDraft] = useState("1");
 	const [selectedTimeRange, setSelectedTimeRange] = useState(
 		MOCK_TIME_RANGES[0],
 	);
@@ -1262,6 +1263,7 @@ export function LogViewerScreen({
 		setLogs([]);
 		setSelectedLogId(null);
 		setIsDetailsOpen(false);
+		setPageDraft("1");
 
 		try {
 			const response = await createPodLogSearch(
@@ -1288,6 +1290,9 @@ export function LogViewerScreen({
 			);
 			setLogTableScrollTop(0);
 			logTableContainerRef.current?.scrollTo({ top: 0 });
+			setPageDraft(
+				String(Math.floor(response.offset / (response.limit || LOG_PAGE_SIZE)) + 1),
+			);
 			setActiveSearch({
 				searchSessionId: response.searchSessionId,
 				namespace: response.namespace,
@@ -1356,6 +1361,11 @@ export function LogViewerScreen({
 			);
 			setLogTableScrollTop(0);
 			logTableContainerRef.current?.scrollTo({ top: 0 });
+			setPageDraft(
+				String(
+					Math.floor(response.offset / (response.limit || currentPageLimit)) + 1,
+				),
+			);
 			setActiveSearch((currentSearch) =>
 				currentSearch
 					? {
@@ -1384,6 +1394,25 @@ export function LogViewerScreen({
 		} finally {
 			setIsPageLoading(false);
 		}
+	};
+
+	const handleGoToPage = () => {
+		if (!activeSearch?.searchSessionId || totalAvailableLogCount === 0) {
+			return;
+		}
+
+		const parsedPage = Number.parseInt(pageDraft, 10);
+		const targetPage = Math.min(
+			totalPageCount,
+			Math.max(1, Number.isNaN(parsedPage) ? currentPage : parsedPage),
+		);
+
+		if (targetPage === currentPage) {
+			setPageDraft(String(currentPage));
+			return;
+		}
+
+		void handleLoadLogPage((targetPage - 1) * currentPageLimit);
 	};
 
 	const handleAddStructuredFilter = () => {
@@ -1802,6 +1831,45 @@ export function LogViewerScreen({
 											Page {currentPage.toLocaleString()} of{" "}
 											{totalPageCount.toLocaleString()}
 										</span>
+										<label
+											htmlFor="log-page-jump"
+											className="sr-only"
+										>
+											Go to page
+										</label>
+										<input
+											id="log-page-jump"
+											type="number"
+											min="1"
+											max={totalPageCount}
+											value={pageDraft}
+											disabled={
+												!activeSearch?.searchSessionId ||
+												totalAvailableLogCount === 0 ||
+												isLogsLoading ||
+												isPageLoading
+											}
+											onChange={(event) => setPageDraft(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === "Enter") {
+													handleGoToPage();
+												}
+											}}
+											className="h-8 w-20 rounded-md border border-border/70 bg-background/80 px-2 text-xs text-foreground [appearance:textfield] focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+										/>
+										<Button
+											variant="outline"
+											className="h-8 rounded-md border-border/70 bg-transparent px-2.5 text-xs dark:border-white/10"
+											disabled={
+												!activeSearch?.searchSessionId ||
+												totalAvailableLogCount === 0 ||
+												isLogsLoading ||
+												isPageLoading
+											}
+											onClick={handleGoToPage}
+										>
+											Go
+										</Button>
 										<Button
 											variant="outline"
 											className="h-8 rounded-md border-border/70 bg-transparent px-2.5 text-xs dark:border-white/10"

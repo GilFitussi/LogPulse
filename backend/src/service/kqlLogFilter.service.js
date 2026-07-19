@@ -2,6 +2,7 @@ const TOKEN_TYPES = {
 	WORD: "word",
 	PHRASE: "phrase",
 	COLON: "colon",
+	EQUAL: "equal",
 	LPAREN: "lparen",
 	RPAREN: "rparen",
 	OPERATOR: "operator",
@@ -40,6 +41,12 @@ function tokenize(query) {
 
 		if (char === ":") {
 			tokens.push({ type: TOKEN_TYPES.COLON, value: char, position: cursor });
+			cursor += 1;
+			continue;
+		}
+
+		if (char === "=") {
+			tokens.push({ type: TOKEN_TYPES.EQUAL, value: char, position: cursor });
 			cursor += 1;
 			continue;
 		}
@@ -88,7 +95,7 @@ function tokenize(query) {
 		while (
 			cursor < source.length &&
 			!/\s/.test(source[cursor]) &&
-			![":", "(", ")", '"'].includes(source[cursor])
+			![":", "=", "(", ")", '"'].includes(source[cursor])
 		) {
 			value += source[cursor];
 			cursor += 1;
@@ -109,6 +116,10 @@ function tokenize(query) {
 
 function isValueToken(token) {
 	return token?.type === TOKEN_TYPES.WORD || token?.type === TOKEN_TYPES.PHRASE;
+}
+
+function isFieldOperatorToken(token) {
+	return token?.type === TOKEN_TYPES.COLON || token?.type === TOKEN_TYPES.EQUAL;
 }
 
 function hasSyntaxTokens(tokens) {
@@ -295,7 +306,7 @@ class KqlParser {
 		if (isValueToken(token)) {
 			const valueToken = this.consume();
 
-			if (this.current()?.type === TOKEN_TYPES.COLON) {
+			if (isFieldOperatorToken(this.current())) {
 				if (valueToken.type !== TOKEN_TYPES.WORD) {
 					return {
 						ok: false,

@@ -49,6 +49,7 @@ const createPodLogSearchBodySchema = Joi.object({
 	filters: Joi.array()
 		.items(
 			Joi.object({
+				id: Joi.any().strip(),
 				field: requiredStringSchema,
 				operator: Joi.string().valid("equals").required(),
 				value: requiredStringSchema,

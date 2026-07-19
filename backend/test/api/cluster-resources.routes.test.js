@@ -129,6 +129,7 @@ describe("cluster-scoped resource endpoints", () => {
 				query: "message:failed",
 				filters: [
 					{
+						id: "statuscode=500",
 						field: "statusCode",
 						operator: "equals",
 						value: "500",
