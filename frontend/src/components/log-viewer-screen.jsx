@@ -15,10 +15,12 @@ import {
 	ChevronRight,
 	Copy,
 	FileJson2,
+	HelpCircle,
 	Loader2,
 	Search,
 	X,
 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { Button } from "@/components/ui/button";
 import { DatasetFieldService } from "@/lib/datasetFieldService";
@@ -29,6 +31,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { fetchClusterDeployments } from "@/lib/deployments";
+import { evaluateKqlQuery } from "@/lib/kqlEvaluator";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
 import {
 	MAX_LOG_DATASET_SIZE,
@@ -61,6 +64,7 @@ const TIME_RANGE_TO_SINCE_SECONDS = {
 };
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
 const FILTER_OPERATORS_BY_FIELD_TYPE = {
+	date: [{ value: "at", label: "at" }],
 	keyword: [{ value: "is", label: "is" }],
 	text: [
 		{ value: "is", label: "is" },
@@ -414,8 +418,145 @@ function getFilterOperatorsForField(field) {
 	);
 }
 
+function getFilterValuePlaceholder(field) {
+	return field?.type === "date" ? "Enter timestamp" : "Enter value";
+}
+
 function formatFieldType(type) {
 	return type ? type.charAt(0).toUpperCase() + type.slice(1) : "Unknown";
+}
+
+function formatKqlFieldValue(value) {
+	const trimmedValue = String(value || "").trim();
+
+	if (!trimmedValue) {
+		return "";
+	}
+
+	if (/[\s()":]/.test(trimmedValue)) {
+		return `"${trimmedValue.replaceAll('"', '\\"')}"`;
+	}
+
+	return trimmedValue;
+}
+
+function appendKqlFieldFilter(query, fieldName, value) {
+	const clauseValue = formatKqlFieldValue(value);
+
+	if (!fieldName || !clauseValue) {
+		return query;
+	}
+
+	const clause = `${fieldName}:${clauseValue}`;
+	const trimmedQuery = String(query || "").trim();
+
+	return trimmedQuery ? `${trimmedQuery} AND ${clause}` : clause;
+}
+
+function KqlHelpDialog() {
+	const examples = [
+		{
+			label: "Free text",
+			query: "connection failed",
+			description: "Searches the main log message text.",
+		},
+		{
+			label: "Field match",
+			query: "level:error",
+			description: "Matches a normalized field value.",
+		},
+		{
+			label: "Quoted value",
+			query: 'message:"connection failed"',
+			description: "Use quotes when the value contains spaces.",
+		},
+		{
+			label: "AND",
+			query: "level:error AND statusCode:500",
+			description: "Requires both conditions.",
+		},
+		{
+			label: "OR",
+			query: "level:error OR level:warn",
+			description: "Matches either condition.",
+		},
+		{
+			label: "NOT",
+			query: "level:error AND NOT service.name:cache",
+			description: "Excludes matching entries.",
+		},
+		{
+			label: "Grouping",
+			query: "(level:error OR level:warn) AND statusCode:500",
+			description: "Controls boolean precedence.",
+		},
+		{
+			label: "Timestamp",
+			query: "@timestamp:2026-07-19",
+			description: "Matches timestamp text such as date or ISO values.",
+		},
+	];
+
+	return (
+		<Dialog.Root>
+			<Dialog.Trigger asChild>
+				<button
+					type="button"
+					className="text-muted-foreground hover:text-foreground"
+					aria-label="Open KQL help"
+					title="KQL help"
+				>
+					<HelpCircle className="size-4" />
+				</button>
+			</Dialog.Trigger>
+			<Dialog.Portal>
+				<Dialog.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-sm" />
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(42rem,calc(100vh-2rem))] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-border bg-card text-card-foreground shadow-xl outline-none">
+					<div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+						<div className="min-w-0">
+							<Dialog.Title className="text-base font-semibold text-foreground">
+								KQL query guide
+							</Dialog.Title>
+							<Dialog.Description className="mt-1 text-sm text-muted-foreground">
+								Use text, field filters, and boolean operators to narrow the
+								loaded log snapshot.
+							</Dialog.Description>
+						</div>
+						<Dialog.Close asChild>
+							<Button variant="ghost" size="icon-sm" aria-label="Close KQL help">
+								<X className="size-4" />
+							</Button>
+						</Dialog.Close>
+					</div>
+					<div className="min-h-0 overflow-auto px-4 py-3">
+						<div className="grid gap-2 sm:grid-cols-2">
+							{examples.map((example) => (
+								<div
+									key={example.label}
+									className="rounded-lg border border-border/70 bg-background/70 p-3 dark:border-white/8 dark:bg-[#091523]"
+								>
+									<div className="text-xs font-medium text-muted-foreground">
+										{example.label}
+									</div>
+									<code className="mt-1 block break-words rounded-md bg-muted px-2 py-1.5 text-xs text-foreground dark:bg-white/[0.04]">
+										{example.query}
+									</code>
+									<div className="mt-2 text-xs leading-5 text-muted-foreground">
+										{example.description}
+									</div>
+								</div>
+							))}
+						</div>
+						<div className="mt-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
+							Field names are matched case-insensitively. Empty queries show all
+							loaded logs. While a query is incomplete, the table keeps showing
+							the previous loaded snapshot.
+						</div>
+					</div>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
 }
 
 function DetailsTabButton({ active, children, onClick }) {
@@ -591,8 +732,7 @@ export function LogViewerScreen({
 		}
 	}, [clusterId, ensureClusterState]);
 
-	const initialQuery =
-		'level:error AND service.name:"payment-service" AND http.response.status_code >= 500';
+	const initialQuery = "";
 	const [queryDraft, setQueryDraft] = useState(initialQuery);
 	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 	const [filterDraftField, setFilterDraftField] = useState("");
@@ -635,9 +775,17 @@ export function LogViewerScreen({
 	const selectedDeployment = clusterViewerState.selectedDeployment;
 	const selectedPods = clusterViewerState.selectedPods;
 	const deferredQueryDraft = useDeferredValue(queryDraft);
+	const queryEvaluation = useMemo(
+		() => evaluateKqlQuery(logs, deferredQueryDraft),
+		[logs, deferredQueryDraft],
+	);
+	const queryResults = queryEvaluation.ok ? queryEvaluation.logs : logs;
+	const queryErrorMessage = queryEvaluation.error
+		? `Invalid query: ${queryEvaluation.error.message}`
+		: "";
 	const selectedLog = useMemo(
-		() => logs.find((entry) => entry.id === selectedLogId) || null,
-		[logs, selectedLogId],
+		() => queryResults.find((entry) => entry.id === selectedLogId) || null,
+		[queryResults, selectedLogId],
 	);
 	const namespaceOptions = useMemo(
 		() => namespaces.map((namespace) => namespace.name),
@@ -948,13 +1096,6 @@ export function LogViewerScreen({
 			});
 	};
 
-	const queryResults = useMemo(() => {
-		// The loaded snapshot already reflects the submitted query on the server.
-		// Keep this derivation explicit and memoized so future client-side query
-		// refinements do not scan large datasets during unrelated renders.
-		void deferredQueryDraft;
-		return logs;
-	}, [logs, deferredQueryDraft]);
 	const virtualWindow = useMemo(() => {
 		const rowCount = queryResults.length;
 		const viewportRowCount = Math.max(
@@ -1159,6 +1300,9 @@ export function LogViewerScreen({
 			return;
 		}
 
+		setQueryDraft((currentQuery) =>
+			appendKqlFieldFilter(currentQuery, selectedFilterFieldName, filterDraftValue),
+		);
 		setFilterDraftValue("");
 		setFilterFieldSearchText("");
 		setIsFilterPopoverOpen(false);
@@ -1254,6 +1398,7 @@ export function LogViewerScreen({
 										className="h-10 w-full rounded-lg border border-primary/60 bg-background/80 pl-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
 									/>
 									<div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+										<KqlHelpDialog />
 										<button
 											type="button"
 											onClick={() => setQueryDraft("")}
@@ -1264,6 +1409,11 @@ export function LogViewerScreen({
 										</button>
 									</div>
 								</div>
+								{queryErrorMessage ? (
+									<div className="mt-1 text-xs text-destructive">
+										{queryErrorMessage}
+									</div>
+								) : null}
 							</div>
 							<div className="relative shrink-0">
 								<Button
@@ -1314,7 +1464,7 @@ export function LogViewerScreen({
 														onChange={(event) =>
 															setFilterDraftValue(event.target.value)
 														}
-														placeholder="Enter value"
+														placeholder={getFilterValuePlaceholder(selectedFilterField)}
 														className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
 													/>
 												</div>
