@@ -44,6 +44,10 @@ test("discovers and flattens all unique searchable dataset fields", () => {
 			.sampleValues,
 		["500"],
 	);
+	assert.deepEqual(
+		fields.find((field) => field.name === "http.response.status_code").values,
+		[{ value: "500", count: 2 }],
+	);
 });
 
 test("keeps sample values limited", () => {
@@ -58,7 +62,17 @@ test("keeps sample values limited", () => {
 	);
 
 	assert.deepEqual(fields, [
-		{ name: "status", type: "text", sampleValues: ["one", "two"] },
+		{
+			name: "status",
+			type: "text",
+			sampleValues: ["one", "two"],
+			values: [
+				{ value: "four", count: 1 },
+				{ value: "one", count: 1 },
+				{ value: "three", count: 1 },
+				{ value: "two", count: 1 },
+			],
+		},
 	]);
 });
 
@@ -71,8 +85,24 @@ test("discovers searchable values inside arrays without hardcoded fields", () =>
 	]);
 
 	assert.deepEqual(fields, [
-		{ name: "containers.name", type: "text", sampleValues: ["api", "worker"] },
-		{ name: "labels", type: "keyword", sampleValues: ["blue", "green"] },
+		{
+			name: "containers.name",
+			type: "text",
+			sampleValues: ["api", "worker"],
+			values: [
+				{ value: "api", count: 1 },
+				{ value: "worker", count: 1 },
+			],
+		},
+		{
+			name: "labels",
+			type: "keyword",
+			sampleValues: ["blue", "green"],
+			values: [
+				{ value: "blue", count: 2 },
+				{ value: "green", count: 1 },
+			],
+		},
 	]);
 });
 
@@ -87,4 +117,24 @@ test("classifies timestamp-like fields as date fields", () => {
 
 	assert.equal(fields.find((field) => field.name === "@timestamp").type, "date");
 	assert.equal(fields.find((field) => field.name === "createdAt").type, "date");
+});
+
+test("removes empty values and sorts numeric values predictably", () => {
+	const fields = DatasetFieldService.discoverFields([
+		{ statusCode: 500, level: "error" },
+		{ statusCode: "200", level: " " },
+		{ statusCode: 404, level: null },
+		{ statusCode: "500", level: "error" },
+		{ statusCode: "", level: "warn" },
+	]);
+
+	assert.deepEqual(fields.find((field) => field.name === "statusCode").values, [
+		{ value: "200", count: 1 },
+		{ value: "404", count: 1 },
+		{ value: "500", count: 2 },
+	]);
+	assert.deepEqual(fields.find((field) => field.name === "level").values, [
+		{ value: "error", count: 2 },
+		{ value: "warn", count: 1 },
+	]);
 });

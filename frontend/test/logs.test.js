@@ -220,6 +220,37 @@ test("parsePodLogSearchResponse normalizes paged search results", () => {
 	assert.equal(response.logs[0].details["kubernetes.namespace_name"], "prod");
 });
 
+test("parsePodLogSearchResponse preserves structured JSON fields from raw lines", () => {
+	const response = parsePodLogSearchResponse(
+		{
+			searchSessionId: "session-1",
+			namespace: "prod",
+			podNames: ["api-123"],
+			offset: 0,
+			limit: 500,
+			totalCount: 1,
+			hasMore: false,
+			nextOffset: null,
+			logs: [
+				{
+					id: "entry-1",
+					podName: "api-123",
+					namespace: "prod",
+					timestamp: "2026-06-04T10:30:00.000Z",
+					level: "error",
+					message: "failed",
+					rawLine:
+						'2026-06-04T10:30:00.000Z {"message":"failed","statusCode":500,"container":"api"}',
+				},
+			],
+		},
+		{ clusterId: 1, deployment: "payments" },
+	);
+
+	assert.equal(response.logs[0].details.statusCode, 500);
+	assert.equal(response.logs[0].details.container, "api");
+});
+
 test("createPodLogSearch posts the initial search and returns the first batch", async () => {
 	const calls = [];
 	const fetchImpl = async (url, options) => {
