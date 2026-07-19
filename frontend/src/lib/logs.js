@@ -134,6 +134,20 @@ function tryParseJsonLogLine(rawLine) {
 	}
 }
 
+function tryParseJsonPayloadFromLine(rawLine) {
+	const normalizedLine = String(rawLine || "");
+	const jsonStartIndex = normalizedLine.indexOf("{");
+	const jsonEndIndex = normalizedLine.lastIndexOf("}");
+
+	if (jsonStartIndex === -1 || jsonEndIndex <= jsonStartIndex) {
+		return null;
+	}
+
+	return tryParseJsonLogLine(
+		normalizedLine.slice(jsonStartIndex, jsonEndIndex + 1),
+	);
+}
+
 export function createLogRecord(rawLine, metadata, lineIndex) {
 	const normalizedLine = normalizeLogLine(rawLine);
 	const jsonLog = tryParseJsonLogLine(normalizedLine);
@@ -209,12 +223,14 @@ export function createLogRecordFromSearchEntry(entry, metadata = {}) {
 		typeof entry?.message === "string" && entry.message.trim()
 			? entry.message.trim()
 			: rawLine;
+	const jsonLog = tryParseJsonPayloadFromLine(rawLine);
 	const level =
 		typeof entry?.level === "string" && entry.level.trim()
 			? detectLogLevel(entry.level)
 			: detectLogLevel(message || rawLine);
 	const service = metadata.service || metadata.deployment || "—";
 	const details = {
+		...(jsonLog && typeof jsonLog === "object" ? jsonLog : {}),
 		message,
 		"log.level": level,
 		"service.name": service,
@@ -336,6 +352,27 @@ export function parsePodLogSearchResponse(data, metadata = {}) {
 			typeof data.nextOffset === "number" && data.nextOffset >= 0
 				? data.nextOffset
 				: null,
+		fields: Array.isArray(data.fields)
+			? data.fields
+					.filter((field) => typeof field?.name === "string" && field.name.trim())
+					.map((field) => ({
+						name: field.name.trim(),
+						type: "keyword",
+						sampleValues: (field.values ?? [])
+							.map((entry) => String(entry?.value ?? "").trim())
+							.filter(Boolean)
+							.slice(0, 5),
+						values: (field.values ?? [])
+							.filter((entry) => String(entry?.value ?? "").trim())
+							.map((entry) => ({
+								value: String(entry.value).trim(),
+								count:
+									typeof entry.count === "number" && entry.count > 0
+										? entry.count
+										: 1,
+							})),
+					}))
+			: [],
 		logs: data.logs.map((entry) =>
 			createLogRecordFromSearchEntry(entry, {
 				...metadata,

@@ -17,7 +17,7 @@ function isSearchableValue(value) {
 
 function normalizeSampleValue(value) {
 	if (typeof value === "string") {
-		return value;
+		return value.trim();
 	}
 
 	return String(value);
@@ -49,12 +49,18 @@ function addFieldValue(fieldsByName, name, value, sampleValueLimit) {
 	}
 
 	const sampleValue = normalizeSampleValue(value);
+
+	if (!sampleValue) {
+		return;
+	}
+
 	const existingField = fieldsByName.get(name) ?? {
 		name,
 		count: 0,
 		maxLength: 0,
 		sampleValues: [],
 		uniqueValues: new Set(),
+		valueCounts: new Map(),
 	};
 
 	existingField.count += 1;
@@ -63,9 +69,12 @@ function addFieldValue(fieldsByName, name, value, sampleValueLimit) {
 		sampleValue.length,
 	);
 	existingField.uniqueValues.add(sampleValue);
+	existingField.valueCounts.set(
+		sampleValue,
+		(existingField.valueCounts.get(sampleValue) ?? 0) + 1,
+	);
 
 	if (
-		sampleValue &&
 		existingField.sampleValues.length < sampleValueLimit &&
 		!existingField.sampleValues.includes(sampleValue)
 	) {
@@ -126,6 +135,28 @@ function inferFieldType(field, options) {
 	return "text";
 }
 
+function compareFieldValues(left, right) {
+	const leftNumber = Number(left.value);
+	const rightNumber = Number(right.value);
+	const leftIsNumeric = left.value.trim() && !Number.isNaN(leftNumber);
+	const rightIsNumeric = right.value.trim() && !Number.isNaN(rightNumber);
+
+	if (leftIsNumeric && rightIsNumeric && leftNumber !== rightNumber) {
+		return leftNumber - rightNumber;
+	}
+
+	return left.value.localeCompare(right.value, undefined, {
+		numeric: true,
+		sensitivity: "base",
+	});
+}
+
+function createSortedValueCounts(valueCounts) {
+	return Array.from(valueCounts.entries())
+		.map(([value, count]) => ({ value, count }))
+		.sort(compareFieldValues);
+}
+
 export class DatasetFieldService {
 	static discoverFields(records, options = {}) {
 		const normalizedOptions = {
@@ -148,6 +179,7 @@ export class DatasetFieldService {
 				name: field.name,
 				type: inferFieldType(field, normalizedOptions),
 				sampleValues: field.sampleValues,
+				values: createSortedValueCounts(field.valueCounts),
 			}))
 			.sort((left, right) => left.name.localeCompare(right.name));
 	}

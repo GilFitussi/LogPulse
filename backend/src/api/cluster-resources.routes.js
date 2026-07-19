@@ -45,6 +45,16 @@ const createPodLogSearchBodySchema = Joi.object({
 	sinceSeconds: Joi.number().integer().positive().required(),
 	limit: Joi.number().integer().positive().default(500),
 	windowEndTimestamp: Joi.string().isoDate().optional(),
+	query: Joi.string().allow("").default(""),
+	filters: Joi.array()
+		.items(
+			Joi.object({
+				field: requiredStringSchema,
+				operator: Joi.string().valid("equals").required(),
+				value: requiredStringSchema,
+			}).unknown(false),
+		)
+		.default([]),
 });
 
 const podLogSearchResultsQuerySchema = Joi.object({

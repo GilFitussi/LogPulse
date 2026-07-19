@@ -13,6 +13,10 @@ const {
 	getLogClient,
 } = require("./kubernetesClientFactory.service");
 const {
+	applyLogSearchFilters,
+	discoverLogFields,
+} = require("./kqlLogFilter.service");
+const {
 	getOcErrorMessage,
 	isOcNotInstalledError,
 	runOcCommand,
@@ -506,6 +510,7 @@ function buildPodLogSearchResponse(session, offset, limit) {
 		totalCount: session.logs.length,
 		hasMore: nextOffset < session.logs.length,
 		nextOffset: nextOffset < session.logs.length ? nextOffset : null,
+		fields: discoverLogFields(session.logs),
 		logs: logs.map(({ parsedTimestamp, order, ...log }) => log),
 	};
 }
@@ -522,12 +527,32 @@ async function createPodLogSearch(clusterId, namespace, options = {}) {
 			fetchPodLogsForWindow(clusterId, namespace, podName, window),
 		),
 	);
+	let logs;
+
+	try {
+		logs = applyLogSearchFilters(sortCombinedLogRecords(podLogs.flat()), {
+			query: options.query,
+			filters: options.filters,
+		});
+	} catch (error) {
+		if (error.code === "INVALID_KQL_QUERY") {
+			throw new AppError("Invalid KQL query", {
+				status: 400,
+				code: "INVALID_KQL_QUERY",
+				details: error.details,
+			});
+		}
+
+		throw error;
+	}
 	const session = createPodLogSearchSession(clusterId, {
 		namespace,
 		podNames,
 		windowStartTimestamp: window.windowStartTimestamp,
 		windowEndTimestamp: window.windowEndTimestamp,
-		logs: sortCombinedLogRecords(podLogs.flat()),
+		query: options.query || "",
+		filters: Array.isArray(options.filters) ? options.filters : [],
+		logs,
 	});
 
 	return buildPodLogSearchResponse(session, 0, options.limit);
