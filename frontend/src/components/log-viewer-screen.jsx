@@ -40,6 +40,13 @@ import {
 	trimLogDataset,
 } from "@/lib/logs";
 import { fetchDeploymentPods } from "@/lib/pods";
+import {
+	addStructuredFilter,
+	applyStructuredFilters,
+	createStructuredFilter,
+	reconcileStructuredFilters,
+	removeStructuredFilter,
+} from "@/lib/structuredFilters";
 import { cn } from "@/lib/utils";
 import { isClusterConnected } from "@/lib/viewerNavigation";
 import {
@@ -63,15 +70,6 @@ const TIME_RANGE_TO_SINCE_SECONDS = {
 	"Last 24 hours": 86400,
 };
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
-const FILTER_OPERATORS_BY_FIELD_TYPE = {
-	date: [{ value: "at", label: "at" }],
-	keyword: [{ value: "is", label: "is" }],
-	text: [
-		{ value: "is", label: "is" },
-		{ value: "contains", label: "contains" },
-	],
-};
-const DEFAULT_FILTER_OPERATORS = FILTER_OPERATORS_BY_FIELD_TYPE.text;
 const LOG_ROW_HEIGHT = 53;
 const LOG_ROW_OVERSCAN = 8;
 
@@ -246,6 +244,63 @@ function FilterFieldDropdown({
 	);
 }
 
+function FilterValueDropdown({
+	value,
+	values,
+	onSelect,
+	disabled = false,
+}) {
+	const selectedValue = values.find((entry) => entry.value === value);
+	const displayValue = selectedValue
+		? `${selectedValue.value} (${selectedValue.count})`
+		: "Select value";
+
+	return (
+		<div className="min-w-0 space-y-1">
+			<ControlLabel>Value</ControlLabel>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild disabled={disabled}>
+					<Button
+						variant="outline"
+						disabled={disabled}
+						className="h-8 w-full justify-between rounded-md border-border/70 bg-background/80 px-2.5 text-[0.8rem] font-normal text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] dark:hover:bg-[#0d1a2a]"
+					>
+						<span className="truncate">{displayValue}</span>
+						<ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent className="max-h-72 w-72 overflow-y-auto border-border/70 bg-popover p-2 text-foreground dark:border-white/10 dark:bg-[#0d1927]">
+					{values.length > 0 ? (
+						values.map((entry) => (
+							<DropdownMenuItem
+								key={entry.value}
+								onSelect={() => onSelect?.(entry.value)}
+								className="cursor-pointer rounded-md px-3 py-2 text-sm focus:bg-muted dark:focus:bg-white/8"
+							>
+								<div className="flex w-full items-center justify-between gap-3">
+									<span className="truncate">{entry.value}</span>
+									<div className="flex shrink-0 items-center gap-2">
+										<span className="text-xs text-muted-foreground">
+											{entry.count}
+										</span>
+										{entry.value === value ? (
+											<Check className="size-4 text-primary" />
+										) : null}
+									</div>
+								</div>
+							</DropdownMenuItem>
+						))
+					) : (
+						<div className="px-3 py-2 text-sm text-muted-foreground">
+							No values found
+						</div>
+					)}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
+	);
+}
+
 function DeploymentDropdown({
 	selectedDeployment,
 	deployments,
@@ -412,45 +467,27 @@ function PodsDropdown({
 	);
 }
 
-function getFilterOperatorsForField(field) {
-	return (
-		FILTER_OPERATORS_BY_FIELD_TYPE[field?.type] ?? DEFAULT_FILTER_OPERATORS
-	);
-}
-
-function getFilterValuePlaceholder(field) {
-	return field?.type === "date" ? "Enter timestamp" : "Enter value";
-}
-
 function formatFieldType(type) {
 	return type ? type.charAt(0).toUpperCase() + type.slice(1) : "Unknown";
 }
 
-function formatKqlFieldValue(value) {
-	const trimmedValue = String(value || "").trim();
-
-	if (!trimmedValue) {
-		return "";
-	}
-
-	if (/[\s()":]/.test(trimmedValue)) {
-		return `"${trimmedValue.replaceAll('"', '\\"')}"`;
-	}
-
-	return trimmedValue;
+function createFilterDiscoveryRecord(log) {
+	return {
+		...(log?.details ?? {}),
+		level: log?.level,
+		namespace: log?.details?.["kubernetes.namespace_name"],
+		deployment: log?.details?.["kubernetes.deployment.name"],
+		podName: log?.details?.["kubernetes.pod.name"] ?? log?.pod,
+		container: log?.details?.container,
+		service: log?.service,
+		message: log?.message,
+	};
 }
 
-function appendKqlFieldFilter(query, fieldName, value) {
-	const clauseValue = formatKqlFieldValue(value);
-
-	if (!fieldName || !clauseValue) {
-		return query;
-	}
-
-	const clause = `${fieldName}:${clauseValue}`;
-	const trimmedQuery = String(query || "").trim();
-
-	return trimmedQuery ? `${trimmedQuery} AND ${clause}` : clause;
+function discoverSearchableFilterFields(logs) {
+	return DatasetFieldService.discoverFields(
+		(Array.isArray(logs) ? logs : []).map(createFilterDiscoveryRecord),
+	).filter((field) => field.type !== "date");
 }
 
 function KqlHelpDialog() {
@@ -735,11 +772,9 @@ export function LogViewerScreen({
 
 	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 	const [filterDraftField, setFilterDraftField] = useState("");
-	const [filterDraftOperator, setFilterDraftOperator] = useState(
-		DEFAULT_FILTER_OPERATORS[0].value,
-	);
 	const [filterDraftValue, setFilterDraftValue] = useState("");
 	const [filterFieldSearchText, setFilterFieldSearchText] = useState("");
+	const [activeStructuredFilters, setActiveStructuredFilters] = useState([]);
 	const [selectedTimeRange, setSelectedTimeRange] = useState(
 		MOCK_TIME_RANGES[0],
 	);
@@ -792,7 +827,11 @@ export function LogViewerScreen({
 		() => evaluateKqlQuery(logs, deferredQueryDraft),
 		[logs, deferredQueryDraft],
 	);
-	const queryResults = queryEvaluation.ok ? queryEvaluation.logs : logs;
+	const queryMatchedLogs = queryEvaluation.ok ? queryEvaluation.logs : logs;
+	const queryResults = useMemo(
+		() => applyStructuredFilters(queryMatchedLogs, activeStructuredFilters),
+		[activeStructuredFilters, queryMatchedLogs],
+	);
 	const queryErrorMessage = queryEvaluation.error
 		? `Invalid query: ${queryEvaluation.error.message}`
 		: "";
@@ -805,8 +844,7 @@ export function LogViewerScreen({
 		[namespaces],
 	);
 	const datasetFields = useMemo(
-		() =>
-			DatasetFieldService.discoverFields(logs.map((log) => log.details ?? log)),
+		() => discoverSearchableFilterFields(logs),
 		[logs],
 	);
 	const searchableFilterFields = datasetFields;
@@ -834,19 +872,17 @@ export function LogViewerScreen({
 		);
 	}, [filterDraftField, hasLoadedLogs, searchableFilterFields]);
 	const selectedFilterFieldName = selectedFilterField?.name ?? "";
-	const filterOperatorOptions = useMemo(
-		() => getFilterOperatorsForField(selectedFilterField),
+	const selectedFilterValues = useMemo(
+		() => selectedFilterField?.values ?? [],
 		[selectedFilterField],
 	);
-	const selectedFilterOperator = filterOperatorOptions.some(
-		(operator) => operator.value === filterDraftOperator,
+	const resolvedFilterDraftValue = selectedFilterValues.some(
+		(entry) => entry.value === filterDraftValue,
 	)
-		? filterDraftOperator
-		: filterOperatorOptions[0].value;
-	const selectedFilterOperatorLabel =
-		filterOperatorOptions.find(
-			(operator) => operator.value === selectedFilterOperator,
-		)?.label ?? filterOperatorOptions[0].label;
+		? filterDraftValue
+		: (selectedFilterValues[0]?.value ?? "");
+	const canApplyStructuredFilter =
+		Boolean(selectedFilterFieldName) && Boolean(resolvedFilterDraftValue);
 	const canSearch =
 		Boolean(clusterId) &&
 		Boolean(selectedNamespace) &&
@@ -1220,6 +1256,12 @@ export function LogViewerScreen({
 
 			const trimmedDataset = trimLogDataset(response.logs);
 			setLogs(trimmedDataset.logs);
+			setActiveStructuredFilters((currentFilters) =>
+				reconcileStructuredFilters(
+					currentFilters,
+					discoverSearchableFilterFields(trimmedDataset.logs),
+				),
+			);
 			setTrimmedLogCount(trimmedDataset.trimmedCount);
 			setLogTableScrollTop(0);
 			logTableContainerRef.current?.scrollTo({ top: 0 });
@@ -1282,6 +1324,12 @@ export function LogViewerScreen({
 					...currentLogs,
 					...response.logs,
 				]);
+				setActiveStructuredFilters((currentFilters) =>
+					reconcileStructuredFilters(
+						currentFilters,
+						discoverSearchableFilterFields(trimmedDataset.logs),
+					),
+				);
 				setTrimmedLogCount(
 					Math.max(
 						trimmedDataset.trimmedCount,
@@ -1309,16 +1357,27 @@ export function LogViewerScreen({
 	};
 
 	const handleAddStructuredFilter = () => {
-		if (!selectedFilterFieldName || !filterDraftValue.trim()) {
+		const nextFilter = createStructuredFilter(
+			selectedFilterFieldName,
+			resolvedFilterDraftValue,
+		);
+
+		if (!nextFilter) {
 			return;
 		}
 
-		setQueryDraft((currentQuery) =>
-			appendKqlFieldFilter(currentQuery, selectedFilterFieldName, filterDraftValue),
+		setActiveStructuredFilters((currentFilters) =>
+			addStructuredFilter(currentFilters, nextFilter),
 		);
 		setFilterDraftValue("");
 		setFilterFieldSearchText("");
 		setIsFilterPopoverOpen(false);
+	};
+
+	const handleRemoveStructuredFilter = (filterId) => {
+		setActiveStructuredFilters((currentFilters) =>
+			removeStructuredFilter(currentFilters, filterId),
+		);
 	};
 
 	const handleSelectLog = useCallback((logId) => {
@@ -1407,7 +1466,7 @@ export function LogViewerScreen({
 										type="text"
 										value={queryDraft}
 										onChange={(event) => setQueryDraft(event.target.value)}
-										placeholder="Search logs (KQL)"
+										placeholder="Search logs with KQL"
 										className="h-10 w-full rounded-lg border border-primary/60 bg-background/80 pl-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
 									/>
 									<div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
@@ -1435,7 +1494,7 @@ export function LogViewerScreen({
 									disabled={!canOpenFilterDialog}
 									onClick={() => setIsFilterPopoverOpen((current) => !current)}
 								>
-									+ Add Filter
+									+ Add field filter
 								</Button>
 								{isFilterPopoverOpen ? (
 									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
@@ -1453,32 +1512,18 @@ export function LogViewerScreen({
 													onSearchTextChange={setFilterFieldSearchText}
 													onSelect={setFilterDraftField}
 												/>
-												<DropdownControl
-													label="Operator"
-													value={selectedFilterOperatorLabel}
-													options={filterOperatorOptions.map(
-														(operator) => operator.label,
-													)}
-													onSelect={(nextLabel) => {
-														const nextOperator = filterOperatorOptions.find(
-															(operator) => operator.label === nextLabel,
-														);
-														if (nextOperator) {
-															setFilterDraftOperator(nextOperator.value);
-														}
-													}}
-													className="space-y-1"
-												/>
-												<div className="space-y-1">
-													<ControlLabel>Value</ControlLabel>
-													<input
-														type="text"
-														value={filterDraftValue}
-														onChange={(event) =>
-															setFilterDraftValue(event.target.value)
-														}
-														placeholder={getFilterValuePlaceholder(selectedFilterField)}
-														className="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-[0.8rem] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-white/10 dark:bg-[#091523]"
+												<div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+													<div className="space-y-1">
+														<ControlLabel>Operator</ControlLabel>
+														<div className="flex h-8 items-center rounded-md border border-border/70 bg-muted/30 px-2.5 text-[0.8rem] text-muted-foreground dark:border-white/10 dark:bg-white/[0.03]">
+															equals
+														</div>
+													</div>
+													<FilterValueDropdown
+														value={resolvedFilterDraftValue}
+														values={selectedFilterValues}
+														onSelect={setFilterDraftValue}
+														disabled={selectedFilterValues.length === 0}
 													/>
 												</div>
 												<div className="flex justify-end gap-2 pt-1">
@@ -1491,10 +1536,7 @@ export function LogViewerScreen({
 													</Button>
 													<Button
 														className="h-8 px-3 text-xs"
-														disabled={
-															!selectedFilterFieldName ||
-															!filterDraftValue.trim()
-														}
+														disabled={!canApplyStructuredFilter}
 														onClick={handleAddStructuredFilter}
 													>
 														Apply
@@ -1518,6 +1560,40 @@ export function LogViewerScreen({
 								Search
 							</Button>
 						</div>
+						{activeStructuredFilters.length > 0 ? (
+							<div className="mt-2 flex flex-wrap items-center gap-2">
+								<span className="shrink-0 text-xs font-medium text-muted-foreground">
+									Field filters
+								</span>
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
+									{activeStructuredFilters.map((filter) => (
+										<span
+											key={filter.id}
+											className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 px-2 py-1 text-xs text-foreground dark:border-white/10 dark:bg-white/[0.04]"
+										>
+											<span className="min-w-0 truncate">
+												{filter.field} = {filter.value}
+											</span>
+											<button
+												type="button"
+												onClick={() => handleRemoveStructuredFilter(filter.id)}
+												className="shrink-0 text-muted-foreground hover:text-foreground"
+												aria-label={`Remove ${filter.field} filter`}
+											>
+												<X className="size-3.5" />
+											</button>
+										</span>
+									))}
+									<Button
+										variant="ghost"
+										className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+										onClick={() => setActiveStructuredFilters([])}
+									>
+										Clear all
+									</Button>
+								</div>
+							</div>
+						) : null}
 					</section>
 
 					<div

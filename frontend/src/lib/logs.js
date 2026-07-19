@@ -134,6 +134,20 @@ function tryParseJsonLogLine(rawLine) {
 	}
 }
 
+function tryParseJsonPayloadFromLine(rawLine) {
+	const normalizedLine = String(rawLine || "");
+	const jsonStartIndex = normalizedLine.indexOf("{");
+	const jsonEndIndex = normalizedLine.lastIndexOf("}");
+
+	if (jsonStartIndex === -1 || jsonEndIndex <= jsonStartIndex) {
+		return null;
+	}
+
+	return tryParseJsonLogLine(
+		normalizedLine.slice(jsonStartIndex, jsonEndIndex + 1),
+	);
+}
+
 export function createLogRecord(rawLine, metadata, lineIndex) {
 	const normalizedLine = normalizeLogLine(rawLine);
 	const jsonLog = tryParseJsonLogLine(normalizedLine);
@@ -209,12 +223,14 @@ export function createLogRecordFromSearchEntry(entry, metadata = {}) {
 		typeof entry?.message === "string" && entry.message.trim()
 			? entry.message.trim()
 			: rawLine;
+	const jsonLog = tryParseJsonPayloadFromLine(rawLine);
 	const level =
 		typeof entry?.level === "string" && entry.level.trim()
 			? detectLogLevel(entry.level)
 			: detectLogLevel(message || rawLine);
 	const service = metadata.service || metadata.deployment || "—";
 	const details = {
+		...(jsonLog && typeof jsonLog === "object" ? jsonLog : {}),
 		message,
 		"log.level": level,
 		"service.name": service,
