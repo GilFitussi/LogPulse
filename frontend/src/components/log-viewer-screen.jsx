@@ -34,15 +34,12 @@ import { fetchClusterDeployments } from "@/lib/deployments";
 import { evaluateKqlQuery } from "@/lib/kqlEvaluator";
 import { fetchClusterNamespaces } from "@/lib/namespaceWorkspace";
 import {
-	MAX_LOG_DATASET_SIZE,
 	createPodLogSearch,
 	fetchPodLogSearchResults,
-	trimLogDataset,
 } from "@/lib/logs";
 import { fetchDeploymentPods } from "@/lib/pods";
 import {
 	addStructuredFilter,
-	applyStructuredFilters,
 	createStructuredFilter,
 	reconcileStructuredFilters,
 	removeStructuredFilter,
@@ -70,6 +67,7 @@ const TIME_RANGE_TO_SINCE_SECONDS = {
 	"Last 24 hours": 86400,
 };
 const DETAIL_TABS = ["Document", "JSON", "Fields"];
+const LOG_PAGE_SIZE = 500;
 const LOG_ROW_HEIGHT = 53;
 const LOG_ROW_OVERSCAN = 8;
 
@@ -490,7 +488,11 @@ function discoverSearchableFilterFields(logs) {
 	).filter((field) => field.type !== "date");
 }
 
-function KqlHelpDialog() {
+function getCurrentTimeMs() {
+	return performance.now();
+}
+
+function KqlHelpDialog({ fields = [] }) {
 	const examples = [
 		{
 			label: "Free text",
@@ -533,6 +535,7 @@ function KqlHelpDialog() {
 			description: "Matches timestamp text such as date or ISO values.",
 		},
 	];
+	const kqlFields = fields.filter((field) => field.kqlSearchable !== false);
 
 	return (
 		<Dialog.Root>
@@ -556,7 +559,7 @@ function KqlHelpDialog() {
 							</Dialog.Title>
 							<Dialog.Description className="mt-1 text-sm text-muted-foreground">
 								Use text, field filters, and boolean operators to narrow the
-								loaded log snapshot.
+								current log search.
 							</Dialog.Description>
 						</div>
 						<Dialog.Close asChild>
@@ -586,9 +589,26 @@ function KqlHelpDialog() {
 						</div>
 						<div className="mt-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
 							Field names are matched case-insensitively. Empty queries show all
-							loaded logs. While a query is incomplete, the table keeps showing
-							the previous loaded snapshot.
+							logs in the selected search scope. Run Search to apply query
+							changes.
 						</div>
+						{kqlFields.length > 0 ? (
+							<div className="mt-3 rounded-lg border border-border/70 bg-background/70 p-3 dark:border-white/8 dark:bg-[#091523]">
+								<div className="text-xs font-medium text-muted-foreground">
+									Available fields
+								</div>
+								<div className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-auto">
+									{kqlFields.map((field) => (
+										<code
+											key={field.name}
+											className="rounded-md bg-muted px-2 py-1 text-xs text-foreground dark:bg-white/[0.04]"
+										>
+											{field.name}
+										</code>
+									))}
+								</div>
+							</div>
+						) : null}
 					</div>
 				</Dialog.Content>
 			</Dialog.Portal>
@@ -775,6 +795,7 @@ export function LogViewerScreen({
 	const [filterDraftValue, setFilterDraftValue] = useState("");
 	const [filterFieldSearchText, setFilterFieldSearchText] = useState("");
 	const [activeStructuredFilters, setActiveStructuredFilters] = useState([]);
+	const [pageDraft, setPageDraft] = useState("1");
 	const [selectedTimeRange, setSelectedTimeRange] = useState(
 		MOCK_TIME_RANGES[0],
 	);
@@ -783,7 +804,7 @@ export function LogViewerScreen({
 	const [selectedLogId, setSelectedLogId] = useState(null);
 	const [logs, setLogs] = useState([]);
 	const [isLogsLoading, setIsLogsLoading] = useState(false);
-	const [isLoadingMoreLogs, setIsLoadingMoreLogs] = useState(false);
+	const [isPageLoading, setIsPageLoading] = useState(false);
 	const [logsError, setLogsError] = useState("");
 	const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
 	const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
@@ -798,7 +819,6 @@ export function LogViewerScreen({
 	const [pods, setPods] = useState([]);
 	const [isPodsLoading, setIsPodsLoading] = useState(false);
 	const [podsError, setPodsError] = useState("");
-	const [trimmedLogCount, setTrimmedLogCount] = useState(0);
 	const [logTableScrollTop, setLogTableScrollTop] = useState(0);
 	const [logTableViewportHeight, setLogTableViewportHeight] = useState(0);
 	const logTableContainerRef = useRef(null);
@@ -824,14 +844,10 @@ export function LogViewerScreen({
 	);
 	const deferredQueryDraft = useDeferredValue(queryDraft);
 	const queryEvaluation = useMemo(
-		() => evaluateKqlQuery(logs, deferredQueryDraft),
-		[logs, deferredQueryDraft],
+		() => evaluateKqlQuery([], deferredQueryDraft),
+		[deferredQueryDraft],
 	);
-	const queryMatchedLogs = queryEvaluation.ok ? queryEvaluation.logs : logs;
-	const queryResults = useMemo(
-		() => applyStructuredFilters(queryMatchedLogs, activeStructuredFilters),
-		[activeStructuredFilters, queryMatchedLogs],
-	);
+	const queryResults = logs;
 	const queryErrorMessage = queryEvaluation.error
 		? `Invalid query: ${queryEvaluation.error.message}`
 		: "";
@@ -844,10 +860,16 @@ export function LogViewerScreen({
 		[namespaces],
 	);
 	const datasetFields = useMemo(
-		() => discoverSearchableFilterFields(logs),
-		[logs],
+		() =>
+			activeSearch?.fields?.length
+				? activeSearch.fields
+				: discoverSearchableFilterFields(logs),
+		[activeSearch, logs],
 	);
-	const searchableFilterFields = datasetFields;
+	const searchableFilterFields = useMemo(
+		() => datasetFields.filter((field) => field.filterable !== false),
+		[datasetFields],
+	);
 	const filteredFilterFields = useMemo(() => {
 		const normalizedSearch = filterFieldSearchText.trim().toLowerCase();
 
@@ -889,36 +911,54 @@ export function LogViewerScreen({
 		Boolean(selectedDeployment) &&
 		selectedPods.length > 0 &&
 		!isLogsLoading &&
-		!isLoadingMoreLogs;
+		!isPageLoading;
 	const canOpenFilterDialog = hasLoadedLogs;
 	const selectedSinceSeconds =
 		TIME_RANGE_TO_SINCE_SECONDS[selectedTimeRange] ?? null;
-	const canLoadMore =
-		Boolean(activeSearch?.searchSessionId) &&
-		Boolean(activeSearch?.hasMore) &&
-		logs.length < MAX_LOG_DATASET_SIZE &&
-		!isLogsLoading &&
-		!isLoadingMoreLogs;
 	const activeTimeRangeLabel =
 		activeSearch?.timeRangeLabel ?? selectedTimeRange;
 	const totalAvailableLogCount = activeSearch?.totalCount ?? logs.length;
+	const currentPageLimit = activeSearch?.limit ?? LOG_PAGE_SIZE;
+	const currentPageOffset = activeSearch?.offset ?? 0;
+	const currentPage = hasLoadedLogs
+		? Math.floor(currentPageOffset / currentPageLimit) + 1
+		: 1;
+	const totalPageCount =
+		hasLoadedLogs && totalAvailableLogCount > 0
+			? Math.ceil(totalAvailableLogCount / currentPageLimit)
+			: 1;
+	const currentPageStart =
+		hasLoadedLogs && totalAvailableLogCount > 0 ? currentPageOffset + 1 : 0;
+	const currentPageEnd =
+		hasLoadedLogs && totalAvailableLogCount > 0
+			? currentPageOffset + logs.length
+			: 0;
+	const canGoToPreviousPage =
+		Boolean(activeSearch?.searchSessionId) &&
+		currentPageOffset > 0 &&
+		!isLogsLoading &&
+		!isPageLoading;
+	const canGoToNextPage =
+		Boolean(activeSearch?.searchSessionId) &&
+		Boolean(activeSearch?.hasMore) &&
+		!isLogsLoading &&
+		!isPageLoading;
 	const loadedLogsSummary = useMemo(() => {
 		if (!hasLoadedLogs) {
 			return `Showing logs from ${activeTimeRangeLabel.toLowerCase()}`;
 		}
 
-		const capSummary =
-			trimmedLogCount > 0
-				? ` (capped at ${MAX_LOG_DATASET_SIZE.toLocaleString()})`
-				: "";
+		if (totalAvailableLogCount === 0) {
+			return "No logs match this search";
+		}
 
-		return `Loaded ${logs.length.toLocaleString()} of ${totalAvailableLogCount.toLocaleString()} logs${capSummary}`;
+		return `Showing ${currentPageStart.toLocaleString()}-${currentPageEnd.toLocaleString()} of ${totalAvailableLogCount.toLocaleString()} logs`;
 	}, [
 		activeTimeRangeLabel,
+		currentPageEnd,
+		currentPageStart,
 		hasLoadedLogs,
-		logs.length,
 		totalAvailableLogCount,
-		trimmedLogCount,
 	]);
 
 	useEffect(() => {
@@ -1228,17 +1268,23 @@ export function LogViewerScreen({
 		setSelectedNamespace(clusterId, value);
 	};
 
-	const handleRefresh = async () => {
+	const handleRefresh = async (overrides = {}) => {
 		if (!canSearch) {
 			return;
 		}
 
-		const startedAt = performance.now();
+		const searchQuery = overrides.query ?? queryDraft;
+		const structuredFilters =
+			overrides.filters ?? activeStructuredFilters;
+		const startedAt = getCurrentTimeMs();
 		setIsLogsLoading(true);
 		setLogsError("");
 		setHasLoadedLogs(true);
 		setActiveSearch(null);
-		setTrimmedLogCount(0);
+		setLogs([]);
+		setSelectedLogId(null);
+		setIsDetailsOpen(false);
+		setPageDraft("1");
 
 		try {
 			const response = await createPodLogSearch(
@@ -1249,61 +1295,69 @@ export function LogViewerScreen({
 				{
 					podNames: selectedPods,
 					sinceSeconds: selectedSinceSeconds,
-					limit: 500,
+					limit: LOG_PAGE_SIZE,
 					deployment: selectedDeployment,
+					query: searchQuery,
+					filters: structuredFilters,
 				},
 			);
 
-			const trimmedDataset = trimLogDataset(response.logs);
-			setLogs(trimmedDataset.logs);
+			setLogs(response.logs);
 			setActiveStructuredFilters((currentFilters) =>
 				reconcileStructuredFilters(
 					currentFilters,
-					discoverSearchableFilterFields(trimmedDataset.logs),
+					response.fields,
 				),
 			);
-			setTrimmedLogCount(trimmedDataset.trimmedCount);
 			setLogTableScrollTop(0);
 			logTableContainerRef.current?.scrollTo({ top: 0 });
+			setPageDraft(
+				String(Math.floor(response.offset / (response.limit || LOG_PAGE_SIZE)) + 1),
+			);
 			setActiveSearch({
 				searchSessionId: response.searchSessionId,
 				namespace: response.namespace,
 				podNames: response.podNames,
 				windowStartTimestamp: response.windowStartTimestamp,
 				windowEndTimestamp: response.windowEndTimestamp,
+				count: response.count,
+				limit: response.limit,
+				offset: response.offset,
 				totalCount: response.totalCount,
-				hasMore:
-					response.hasMore && trimmedDataset.logs.length < MAX_LOG_DATASET_SIZE,
+				hasMore: response.hasMore,
 				nextOffset: response.nextOffset,
 				timeRangeLabel: selectedTimeRange,
-				query: queryDraft,
+				query: searchQuery,
 				deployment: selectedDeployment,
+				filters: structuredFilters,
+				fields: response.fields,
 			});
 			setSelectedLogId((currentSelectedLogId) =>
-				trimmedDataset.logs.some((log) => log.id === currentSelectedLogId)
+				response.logs.some((log) => log.id === currentSelectedLogId)
 					? currentSelectedLogId
 					: null,
 			);
 			setIsDetailsOpen(
-				trimmedDataset.logs.some((log) => log.id === selectedLogId) &&
+				response.logs.some((log) => log.id === selectedLogId) &&
 					isDetailsOpen,
 			);
-			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
+			setLastRefreshDurationMs(Math.round(getCurrentTimeMs() - startedAt));
 		} catch (error) {
 			setLogsError(error.message || "Unable to load logs");
-			setLastRefreshDurationMs(Math.round(performance.now() - startedAt));
+			setLastRefreshDurationMs(Math.round(getCurrentTimeMs() - startedAt));
 		} finally {
 			setLastRefreshedAt(new Date());
 			setIsLogsLoading(false);
 		}
 	};
 
-	const handleLoadMoreLogs = async () => {
-		if (!canLoadMore) {
+	const handleLoadLogPage = async (offset) => {
+		if (!activeSearch?.searchSessionId || isLogsLoading || isPageLoading) {
 			return;
 		}
 
-		setIsLoadingMoreLogs(true);
+		const nextOffset = Math.max(0, offset);
+		setIsPageLoading(true);
 		setLogsError("");
 
 		try {
@@ -1313,47 +1367,73 @@ export function LogViewerScreen({
 				activeSearch.searchSessionId,
 				apiBaseUrl,
 				{
-					offset: activeSearch.nextOffset,
-					limit: 500,
+					offset: nextOffset,
+					limit: currentPageLimit,
 					deployment: activeSearch.deployment,
 				},
 			);
 
-			setLogs((currentLogs) => {
-				const trimmedDataset = trimLogDataset([
-					...currentLogs,
-					...response.logs,
-				]);
-				setActiveStructuredFilters((currentFilters) =>
-					reconcileStructuredFilters(
-						currentFilters,
-						discoverSearchableFilterFields(trimmedDataset.logs),
-					),
-				);
-				setTrimmedLogCount(
-					Math.max(
-						trimmedDataset.trimmedCount,
-						response.totalCount - trimmedDataset.logs.length,
-					),
-				);
-				return trimmedDataset.logs;
-			});
+			setLogs(response.logs);
+			setActiveStructuredFilters((currentFilters) =>
+				reconcileStructuredFilters(
+					currentFilters,
+					response.fields,
+				),
+			);
+			setLogTableScrollTop(0);
+			logTableContainerRef.current?.scrollTo({ top: 0 });
+			setPageDraft(
+				String(
+					Math.floor(response.offset / (response.limit || currentPageLimit)) + 1,
+				),
+			);
 			setActiveSearch((currentSearch) =>
 				currentSearch
 					? {
 							...currentSearch,
+							count: response.count,
+							limit: response.limit,
+							offset: response.offset,
 							totalCount: response.totalCount,
-							hasMore:
-								response.hasMore && response.nextOffset < MAX_LOG_DATASET_SIZE,
+							hasMore: response.hasMore,
 							nextOffset: response.nextOffset,
+							fields: response.fields,
 						}
 					: currentSearch,
 			);
+			setSelectedLogId((currentSelectedLogId) =>
+				response.logs.some((log) => log.id === currentSelectedLogId)
+					? currentSelectedLogId
+					: null,
+			);
+			setIsDetailsOpen(
+				response.logs.some((log) => log.id === selectedLogId) &&
+					isDetailsOpen,
+			);
 		} catch (error) {
-			setLogsError(error.message || "Unable to load more logs");
+			setLogsError(error.message || "Unable to load log page");
 		} finally {
-			setIsLoadingMoreLogs(false);
+			setIsPageLoading(false);
 		}
+	};
+
+	const handleGoToPage = () => {
+		if (!activeSearch?.searchSessionId || totalAvailableLogCount === 0) {
+			return;
+		}
+
+		const parsedPage = Number.parseInt(pageDraft, 10);
+		const targetPage = Math.min(
+			totalPageCount,
+			Math.max(1, Number.isNaN(parsedPage) ? currentPage : parsedPage),
+		);
+
+		if (targetPage === currentPage) {
+			setPageDraft(String(currentPage));
+			return;
+		}
+
+		void handleLoadLogPage((targetPage - 1) * currentPageLimit);
 	};
 
 	const handleAddStructuredFilter = () => {
@@ -1366,18 +1446,38 @@ export function LogViewerScreen({
 			return;
 		}
 
-		setActiveStructuredFilters((currentFilters) =>
-			addStructuredFilter(currentFilters, nextFilter),
+		const nextFilters = addStructuredFilter(
+			activeStructuredFilters,
+			nextFilter,
 		);
+		setActiveStructuredFilters(nextFilters);
 		setFilterDraftValue("");
 		setFilterFieldSearchText("");
 		setIsFilterPopoverOpen(false);
+
+		if (hasLoadedLogs && nextFilters !== activeStructuredFilters) {
+			void handleRefresh({ filters: nextFilters });
+		}
 	};
 
 	const handleRemoveStructuredFilter = (filterId) => {
-		setActiveStructuredFilters((currentFilters) =>
-			removeStructuredFilter(currentFilters, filterId),
+		const nextFilters = removeStructuredFilter(
+			activeStructuredFilters,
+			filterId,
 		);
+		setActiveStructuredFilters(nextFilters);
+
+		if (hasLoadedLogs) {
+			void handleRefresh({ filters: nextFilters });
+		}
+	};
+
+	const handleClearStructuredFilters = () => {
+		setActiveStructuredFilters([]);
+
+		if (hasLoadedLogs) {
+			void handleRefresh({ filters: [] });
+		}
 	};
 
 	const handleSelectLog = useCallback((logId) => {
@@ -1470,7 +1570,7 @@ export function LogViewerScreen({
 										className="h-10 w-full rounded-lg border border-primary/60 bg-background/80 pl-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-[#091523]"
 									/>
 									<div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-										<KqlHelpDialog />
+										<KqlHelpDialog fields={datasetFields} />
 										<button
 											type="button"
 											onClick={() => setQueryDraft("")}
@@ -1500,7 +1600,7 @@ export function LogViewerScreen({
 									<div className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-80 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-lg dark:border-white/10 dark:bg-[#0d1927]">
 										{searchableFilterFields.length === 0 ? (
 											<div className="rounded-md border border-border/70 bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground dark:border-white/8 dark:bg-white/[0.03]">
-												No searchable fields found in this dataset.
+												No filterable fields found in this search.
 											</div>
 										) : (
 											<div className="grid gap-2">
@@ -1587,7 +1687,7 @@ export function LogViewerScreen({
 									<Button
 										variant="ghost"
 										className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-										onClick={() => setActiveStructuredFilters([])}
+										onClick={handleClearStructuredFilters}
 									>
 										Clear all
 									</Button>
@@ -1733,20 +1833,82 @@ export function LogViewerScreen({
 
 							<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-xs text-muted-foreground">
 								<span>{loadedLogsSummary}</span>
-								{activeSearch?.hasMore ? (
-									<Button
-										variant="outline"
-										className="h-8 rounded-md border-border/70 bg-transparent px-3 text-xs dark:border-white/10"
-										disabled={!canLoadMore}
-										onClick={() => {
-											void handleLoadMoreLogs();
-										}}
-									>
-										{isLoadingMoreLogs ? (
-											<Loader2 className="size-4 animate-spin" />
-										) : null}
-										Show More
-									</Button>
+								{hasLoadedLogs ? (
+									<div className="flex flex-wrap items-center gap-2">
+										<Button
+											variant="outline"
+											className="h-8 rounded-md border-border/70 bg-transparent px-2.5 text-xs dark:border-white/10"
+											disabled={!canGoToPreviousPage}
+											onClick={() => {
+												void handleLoadLogPage(
+													currentPageOffset - currentPageLimit,
+												);
+											}}
+										>
+											<ChevronLeft className="size-4" />
+											Previous
+										</Button>
+										<span className="min-w-[7.5rem] text-center">
+											Page {currentPage.toLocaleString()} of{" "}
+											{totalPageCount.toLocaleString()}
+										</span>
+										<label
+											htmlFor="log-page-jump"
+											className="sr-only"
+										>
+											Go to page
+										</label>
+										<input
+											id="log-page-jump"
+											type="number"
+											min="1"
+											max={totalPageCount}
+											value={pageDraft}
+											disabled={
+												!activeSearch?.searchSessionId ||
+												totalAvailableLogCount === 0 ||
+												isLogsLoading ||
+												isPageLoading
+											}
+											onChange={(event) => setPageDraft(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === "Enter") {
+													handleGoToPage();
+												}
+											}}
+											className="h-8 w-20 rounded-md border border-border/70 bg-background/80 px-2 text-xs text-foreground [appearance:textfield] focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#091523] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+										/>
+										<Button
+											variant="outline"
+											className="h-8 rounded-md border-border/70 bg-transparent px-2.5 text-xs dark:border-white/10"
+											disabled={
+												!activeSearch?.searchSessionId ||
+												totalAvailableLogCount === 0 ||
+												isLogsLoading ||
+												isPageLoading
+											}
+											onClick={handleGoToPage}
+										>
+											Go
+										</Button>
+										<Button
+											variant="outline"
+											className="h-8 rounded-md border-border/70 bg-transparent px-2.5 text-xs dark:border-white/10"
+											disabled={!canGoToNextPage}
+											onClick={() => {
+												void handleLoadLogPage(
+													activeSearch?.nextOffset ??
+														currentPageOffset + currentPageLimit,
+												);
+											}}
+										>
+											{isPageLoading ? (
+												<Loader2 className="size-4 animate-spin" />
+											) : null}
+											Next
+											<ChevronRight className="size-4" />
+										</Button>
+									</div>
 								) : null}
 							</div>
 						</section>
@@ -1788,8 +1950,7 @@ export function LogViewerScreen({
 
 					<div className="flex items-center gap-6">
 						<span>
-							Showing {queryResults.length.toLocaleString()} of{" "}
-							{logs.length.toLocaleString()} logs
+							Page rows: {queryResults.length.toLocaleString()}
 						</span>
 						<span>
 							{lastRefreshDurationMs === null

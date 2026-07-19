@@ -126,6 +126,15 @@ describe("cluster-scoped resource endpoints", () => {
 				podNames: ["api-123", "api-456"],
 				sinceSeconds: 900,
 				limit: 500,
+				query: "message:failed",
+				filters: [
+					{
+						id: "statuscode=500",
+						field: "statusCode",
+						operator: "equals",
+						value: "500",
+					},
+				],
 			});
 
 		expect(response.status).toBe(200);
@@ -134,6 +143,14 @@ describe("cluster-scoped resource endpoints", () => {
 			podNames: ["api-123", "api-456"],
 			sinceSeconds: 900,
 			limit: 500,
+			query: "message:failed",
+			filters: [
+				{
+					field: "statusCode",
+					operator: "equals",
+					value: "500",
+				},
+			],
 		});
 	});
 

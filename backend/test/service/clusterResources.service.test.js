@@ -414,6 +414,88 @@ describe("cluster resources service", () => {
 		Date.now.mockRestore();
 	});
 
+	it("filters the complete pod log search session before pagination", async () => {
+		jest
+			.spyOn(Date, "now")
+			.mockReturnValue(Date.parse("2026-06-04T15:00:00.000Z"));
+		const coreClient = {
+			readNamespacedPod: jest.fn().mockResolvedValue({
+				body: { spec: { containers: [{ name: "api" }] } },
+			}),
+		};
+		const logClient = {
+			log: jest.fn().mockImplementation(async (_namespace, _podName, _containerName, stream) => {
+				stream.end(
+					[
+						'2026-06-04T14:59:00.000Z {"level":"debug","message":"connection failed","statusCode":500}',
+						'2026-06-04T14:58:00.000Z {"level":"info","message":"connection failed","statusCode":200}',
+						'2026-06-04T14:57:00.000Z {"level":"error","message":"cache failed","statusCode":500}',
+						'2026-06-04T14:56:00.000Z {"level":"error","message":"connection failed","statusCode":503}',
+					].join("\n") + "\n",
+				);
+			}),
+		};
+		mockGetClusterById.mockResolvedValue({ id: 1, name: "Dev" });
+		mockGetClusterSession.mockReturnValue({
+			clusterId: 1,
+			kubeconfigContent: "cluster-1-config",
+		});
+		mockGetCoreV1Api.mockReturnValue(coreClient);
+		mockGetLogClient.mockReturnValue(logClient);
+
+		const result = await createPodLogSearch(1, "apps", {
+			podNames: ["api-123"],
+			sinceSeconds: 900,
+			limit: 1,
+			query: 'message:connection AND statusCode = 500 AND log.level:"DEBUG"',
+			filters: [
+				{
+					field: "statusCode",
+					operator: "equals",
+					value: "500",
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			count: 1,
+			totalCount: 1,
+			hasMore: false,
+			nextOffset: null,
+			logs: [
+				{
+					podName: "api-123",
+					namespace: "apps",
+					level: "DEBUG",
+					message: "connection failed",
+				},
+			],
+		});
+		expect(result.fields).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "log.level",
+					filterable: true,
+					kqlSearchable: true,
+				}),
+				expect.objectContaining({
+					name: "message",
+					filterable: false,
+					kqlSearchable: true,
+				}),
+				expect.objectContaining({
+					name: "statusCode",
+					filterable: true,
+					kqlSearchable: true,
+				}),
+			]),
+		);
+		expect(result.fields.map((field) => field.name)).not.toEqual(
+			expect.arrayContaining(["log", "timestamp"]),
+		);
+		Date.now.mockRestore();
+	});
+
 	it("returns older results from the cached combined session without refetching pod logs", async () => {
 		jest
 			.spyOn(Date, "now")

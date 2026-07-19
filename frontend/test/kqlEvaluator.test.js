@@ -77,6 +77,7 @@ test("evaluateKqlQuery matches normalized field values", () => {
 
 test("evaluateKqlQuery matches numeric statusCode as number or string", () => {
 	assert.deepEqual(matchingIds("statusCode:500"), ["one"]);
+	assert.deepEqual(matchingIds("statusCode = 500"), ["one"]);
 	assert.deepEqual(matchingIds("statusCode:200"), ["two"]);
 });
 

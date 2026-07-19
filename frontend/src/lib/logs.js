@@ -352,6 +352,29 @@ export function parsePodLogSearchResponse(data, metadata = {}) {
 			typeof data.nextOffset === "number" && data.nextOffset >= 0
 				? data.nextOffset
 				: null,
+		fields: Array.isArray(data.fields)
+			? data.fields
+					.filter((field) => typeof field?.name === "string" && field.name.trim())
+					.map((field) => ({
+						name: field.name.trim(),
+						type: "keyword",
+						filterable: field.filterable !== false,
+						kqlSearchable: field.kqlSearchable !== false,
+						sampleValues: (field.values ?? [])
+							.map((entry) => String(entry?.value ?? "").trim())
+							.filter(Boolean)
+							.slice(0, 5),
+						values: (field.values ?? [])
+							.filter((entry) => String(entry?.value ?? "").trim())
+							.map((entry) => ({
+								value: String(entry.value).trim(),
+								count:
+									typeof entry.count === "number" && entry.count > 0
+										? entry.count
+										: 1,
+							})),
+					}))
+			: [],
 		logs: data.logs.map((entry) =>
 			createLogRecordFromSearchEntry(entry, {
 				...metadata,
@@ -375,6 +398,16 @@ export async function createPodLogSearch(
 	apiBaseUrl,
 	options = {},
 ) {
+	const requestOptions = {
+		...options,
+		filters: Array.isArray(options.filters)
+			? options.filters.map((filter) => ({
+					field: filter.field,
+					operator: filter.operator,
+					value: filter.value,
+				}))
+			: options.filters,
+	};
 	const response = await fetchImpl(
 		`${apiBaseUrl}/api/clusters/${clusterId}/namespaces/${encodeURIComponent(namespace)}/log-searches`,
 		{
@@ -382,7 +415,7 @@ export async function createPodLogSearch(
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify(options),
+			body: JSON.stringify(requestOptions),
 		},
 	);
 	const data = await response.json().catch(() => ({}));
